@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f6f0e4">
+  <title>纸间 · 简单笔记</title>
+  <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <section id="loginView" class="login-view">
+    <div class="login-mark">纸间</div>
+    <div class="login-card">
+      <p class="eyebrow">SIMPLE NOTE</p>
+      <h1>把想法，安静地放下来。</h1>
+      <p class="muted">本地保存 · Markdown / HTML · WebDAV 同步</p>
+      <form id="loginForm">
+        <label>访问密码<input id="loginPassword" type="password" autocomplete="current-password" value="admin" required></label>
+        <button class="primary" type="submit">进入纸间</button>
+        <p id="loginError" class="error"></p>
+      </form>
+    </div>
+  </section>
+
+  <main id="appView" class="app hidden">
+    <aside id="sidebar" class="sidebar">
+      <header class="brand"><span>纸间</span><button id="closeDrawer" class="icon mobile-only" aria-label="关闭">×</button></header>
+      <nav id="categories" class="categories"></nav>
+      <div class="side-footer"><span id="syncDot" class="dot"></span><span id="syncText">本地已保存</span></div>
+    </aside>
+
+    <section id="notesPane" class="notes-pane">
+      <header class="pane-header">
+        <button id="openDrawer" class="icon mobile-only" aria-label="分类">☰</button>
+        <div><p class="eyebrow">NOTES</p><h2 id="listTitle">全部笔记</h2></div>
+        <button id="addNoteTop" class="icon" aria-label="新建">＋</button>
+      </header>
+      <div class="search-wrap"><input id="search" placeholder="搜索笔记"></div>
+      <div id="noteList" class="note-list"></div>
+    </section>
+
+    <section id="editorPane" class="editor-pane">
+      <header class="editor-header">
+        <div class="segmented">
+          <button data-view="markdown">Markdown</button>
+          <button data-view="html">HTML</button>
+          <button data-view="source" class="active">源码</button>
+        </div>
+        <div class="editor-actions">
+          <button id="deleteBtn" class="text-btn danger">删除</button>
+        </div>
+      </header>
+      <div class="editor-body">
+        <div class="meta-row">
+          <select id="categorySelect" aria-label="分类"></select>
+          <span id="saveState">已保存</span>
+        </div>
+        <input id="noteTitle" class="title-input" placeholder="无标题">
+        <article id="inlinePreview" class="inline-preview hidden"></article>
+        <textarea id="noteContent" placeholder="从这里开始记录…"></textarea>
+        <div class="format-bar">
+          <button data-insert="**粗体**">B</button>
+          <button data-insert="## 标题">H</button>
+          <button data-insert="- [ ] 待办">☑</button>
+          <button data-insert="> 引用">❝</button>
+          <button data-insert="$E=mc^2$" title="行内公式">Σ</button>
+          <button data-insert="$$\n\\int_{a}^{b} f(x)\\,dx\n$$" title="块级公式">∫</button>
+          <label class="image-button">图片<input id="imageInput" type="file" accept="image/*"></label>
+          <span>图片以 Base64 保存</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="settingsPane" class="settings-pane hidden">
+      <header class="settings-header">
+        <div><p class="eyebrow">SETTINGS</p><h2>设置</h2></div>
+        <button id="saveSettings" class="header-save-button" type="button">保存</button>
+      </header>
+      <div class="settings-scroll">
+        <section class="settings-section">
+          <h3>界面风格</h3>
+          <div class="theme-picker" id="themePicker">
+            <button type="button" data-theme-choice="clean">
+              <span class="theme-preview theme-clean"></span>
+              <strong>清爽浅色</strong><small>简洁 · 清晰</small>
+            </button>
+            <button type="button" data-theme-choice="studio">
+              <span class="theme-preview theme-studio"></span>
+              <strong>深色工作台</strong><small>专注 · 高对比</small>
+            </button>
+            <button type="button" data-theme-choice="paper">
+              <span class="theme-preview theme-paper"></span>
+              <strong>暖色纸感</strong><small>阅读 · 沉静</small>
+            </button>
+          </div>
+        </section>
+        <section id="webLoginSettings" class="settings-section">
+          <h3>网页版登录</h3>
+          <label>新密码<input id="newPassword" type="password" placeholder="留空则不修改"></label>
+        </section>
+        <section class="settings-section">
+          <h3>WebDAV</h3>
+          <label>服务器地址<input id="davUrl" placeholder="https://dav.example.com/notes"></label>
+          <p class="settings-hint">协议必须与服务器一致：HTTPS 地址使用 <code>https://</code>，普通 HTTP 地址使用 <code>http://</code>。HTTP 会明文传输密码，仅建议在可信局域网使用。</p>
+          <div class="two-col">
+            <label>用户名<input id="davUser"></label>
+            <label>密码
+              <span class="password-field">
+                <input id="davPassword" type="password" placeholder="未修改">
+                <button id="toggleDavPassword" type="button" aria-label="显示密码" aria-pressed="false">显示</button>
+              </span>
+            </label>
+          </div>
+          <div class="sync-card">
+            <div>
+              <strong>笔记同步</strong>
+              <small id="settingsSyncStatus">尚未同步</small>
+            </div>
+            <button id="syncNowBtn" class="primary">立即同步</button>
+          </div>
+          <div class="button-row">
+            <button id="pullBtn" class="secondary">仅下载合并</button>
+            <button id="pushBtn" class="secondary">仅上传合并</button>
+          </div>
+          <p class="settings-hint">立即同步会按 UUID 和更新时间合并，时间较新的版本胜出。</p>
+        </section>
+        <section class="settings-section">
+          <h3>分类设置 <small>最多 4 个字</small></h3>
+          <div id="categoryEditor"></div>
+          <button id="addCategory" class="secondary">添加分类</button>
+        </section>
+      </div>
+    </section>
+
+    <nav class="bottom-tabs">
+      <button data-tab="notes" class="active"><span>▤</span>笔记</button>
+      <button id="newNoteTab" class="new-tab"><span>＋</span>新建</button>
+      <button data-tab="settings"><span>⚙</span>设置</button>
+    </nav>
+  </main>
+
+  <div id="toast" role="status"></div>
+  <script src="vendor/katex/katex.min.js"></script>
+  <script src="vendor/katex/contrib/auto-render.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

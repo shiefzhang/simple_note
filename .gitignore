@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+web/data/
+web/.env
+android/.gradle/
+android/build/
+android/local.properties
+android/app/build/
+*.iml
+.idea/
+.npm-cache/
+.katex-package/
+katex-*.tgz
+android-*.png
+current-android.png
+design-qa.md
+README.html
+
+# iOS 源码仅保留在本机，禁止提交到 GitHub
+ios-local/
