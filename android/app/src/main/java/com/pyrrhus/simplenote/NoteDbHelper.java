@@ -141,8 +141,9 @@ final class NoteDbHelper extends SQLiteOpenHelper {
         ContentValues values = new ContentValues();
         values.put("key", key);
         values.put("value", value == null ? "" : value);
-        getWritableDatabase().insertWithOnConflict(
+        long result = getWritableDatabase().insertWithOnConflict(
             "settings", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+        if (result == -1) throw new IllegalStateException("设置保存失败：" + key);
     }
 
     List<String> categories() {
@@ -159,6 +160,15 @@ final class NoteDbHelper extends SQLiteOpenHelper {
         setSetting("categories", new JSONArray(categories).toString());
     }
 
+    void renameCategory(String oldValue, String newValue) {
+        if (oldValue.equals(newValue)) return;
+        ContentValues values = new ContentValues();
+        values.put("category", newValue);
+        values.put("updated_at", now());
+        getWritableDatabase().update(
+            "notes", values, "category=?", new String[]{oldValue});
+    }
+
     JSONObject exportJson() throws JSONException {
         JSONArray notes = new JSONArray();
         for (Note note : query("全部", "", true)) notes.put(note.toJson());
@@ -170,9 +180,26 @@ final class NoteDbHelper extends SQLiteOpenHelper {
             .put("categories", new JSONArray(categories()));
     }
 
+    JSONObject emptyArchiveJson() throws JSONException {
+        return new JSONObject()
+            .put("signature", ARCHIVE_SIGNATURE)
+            .put("version", 2)
+            .put("exported_at", now())
+            .put("notes", new JSONArray())
+            .put("categories", new JSONArray());
+    }
+
     int merge(JSONObject payload) throws JSONException {
-        if (!ARCHIVE_SIGNATURE.equals(payload.optString("signature"))) {
+        return merge(payload, true);
+    }
+
+    int merge(JSONObject payload, boolean mergeCategories) throws JSONException {
+        String signature = payload.optString("signature", "").trim();
+        if (!signature.isEmpty() && !ARCHIVE_SIGNATURE.equals(signature)) {
             throw new JSONException("文件特征码不匹配，这不是纸间的 WebDAV 数据文件");
+        }
+        if (signature.isEmpty() && !isValidLegacyArchive(payload)) {
+            throw new JSONException("旧版数据文件结构无效，无法确认这是纸间的 WebDAV 数据文件");
         }
         JSONArray notes = payload.optJSONArray("notes");
         int count = 0;
@@ -187,17 +214,37 @@ final class NoteDbHelper extends SQLiteOpenHelper {
             }
         }
         JSONArray categories = payload.optJSONArray("categories");
-        if (categories != null) {
-            List<String> values = new ArrayList<>();
+        if (mergeCategories && categories != null) {
+            List<String> values = new ArrayList<>(categories());
             for (int i = 0; i < categories.length(); i++) {
                 String value = categories.optString(i).trim();
                 if (!value.isEmpty() && value.codePointCount(0, value.length()) <= 4 && !values.contains(value)) {
                     values.add(value);
                 }
             }
-            if (!values.isEmpty()) categories(values);
+            categories(values);
         }
         return count;
+    }
+
+    private static boolean isValidLegacyArchive(JSONObject payload) {
+        int version = payload.optInt("version", -1);
+        JSONArray notes = payload.optJSONArray("notes");
+        JSONArray categories = payload.optJSONArray("categories");
+        if ((version != 1 && version != 2) || notes == null || categories == null) {
+            return false;
+        }
+        for (int i = 0; i < notes.length(); i++) {
+            JSONObject note = notes.optJSONObject(i);
+            if (note == null || !note.has("id") || !note.has("updated_at")) {
+                return false;
+            }
+            String format = note.optString("format", "markdown");
+            if (!"markdown".equals(format) && !"html".equals(format)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static Note read(Cursor cursor) {

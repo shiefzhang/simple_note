@@ -27,7 +27,13 @@ final class Note {
 
     static Note fromJson(JSONObject object) {
         Note note = new Note();
-        note.id = object.optString("id", java.util.UUID.randomUUID().toString());
+        Object rawId = object.opt("id");
+        if (rawId instanceof Number) {
+            note.id = "legacy-" + rawId;
+        } else {
+            String value = object.optString("id", "").trim();
+            note.id = value.isEmpty() ? java.util.UUID.randomUUID().toString() : value;
+        }
         note.title = object.optString("title", "");
         note.content = object.optString("content", "");
         note.format = object.optString("format", "markdown");

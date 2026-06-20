@@ -19,7 +19,7 @@ STATIC = ROOT / "static"
 DAV_FILENAME = "simple-note-export.json"
 ARCHIVE_SIGNATURE = "SIMPLE_NOTE_WEBDAV_V1"
 
-app = FastAPI(title="纸间 · Simple Note", version="2.0.0")
+app = FastAPI(title="纸间 · 简单笔记", version="2.0.0")
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -104,14 +104,20 @@ def load_webdav(body: WebDavCredentials) -> dict[str, Any]:
         payload = response.json()
         if not isinstance(payload, dict):
             raise ValueError("WebDAV 文件不是有效的 JSON 对象")
-        if payload.get("signature") != ARCHIVE_SIGNATURE:
-            raise ValueError("文件特征码不匹配，这不是纸间的 WebDAV 数据文件")
         if not isinstance(payload.get("notes", []), list):
             raise ValueError("纸间数据文件中的 notes 格式无效")
+        signature = payload.get("signature")
+        legacy = signature is None
+        if legacy:
+            if payload.get("version") != 2 or not isinstance(payload.get("categories"), list):
+                raise ValueError("文件特征码不匹配，这不是纸间的 WebDAV 数据文件")
+        elif signature != ARCHIVE_SIGNATURE:
+            raise ValueError("文件特征码不匹配，这不是纸间的 WebDAV 数据文件")
         payload.setdefault("version", 2)
         payload.setdefault("notes", [])
         payload.setdefault("categories", ["随笔", "待办", "阅读"])
-        return {"exists": True, "payload": payload}
+        payload["signature"] = ARCHIVE_SIGNATURE
+        return {"exists": True, "legacy": legacy, "payload": payload}
     except httpx.HTTPStatusError as exc:
         status = exc.response.status_code
         if status in {401, 403}:

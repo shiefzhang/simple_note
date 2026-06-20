@@ -47,6 +47,12 @@
           <button data-view="html">HTML</button>
           <button data-view="source" class="active">源码</button>
         </div>
+        <div class="note-search">
+          <input id="noteSearch" type="search" placeholder="页内搜索" aria-label="页内搜索">
+          <span id="noteSearchCount">0/0</span>
+          <button id="noteSearchPrev" type="button" aria-label="上一个匹配">↑</button>
+          <button id="noteSearchNext" type="button" aria-label="下一个匹配">↓</button>
+        </div>
         <div class="editor-actions">
           <button id="deleteBtn" class="text-btn danger">删除</button>
         </div>
@@ -54,9 +60,10 @@
       <div class="editor-body">
         <div class="meta-row">
           <select id="categorySelect" aria-label="分类"></select>
-          <span id="saveState">已保存</span>
+          <button id="saveNoteBtn" class="save-note-button" type="button" disabled>保存笔记</button>
         </div>
         <input id="noteTitle" class="title-input" placeholder="无标题">
+        <article id="searchPreview" class="search-preview hidden"></article>
         <article id="inlinePreview" class="inline-preview hidden"></article>
         <textarea id="noteContent" placeholder="从这里开始记录…"></textarea>
         <div class="format-bar">
@@ -122,8 +129,9 @@
           <div class="button-row">
             <button id="pullBtn" class="secondary">仅下载合并</button>
             <button id="pushBtn" class="secondary">仅上传合并</button>
+            <button id="formatDavBtn" class="secondary danger-button">格式化云端</button>
           </div>
-          <p class="settings-hint">立即同步会按 UUID 和更新时间合并，时间较新的版本胜出。</p>
+          <p class="settings-hint">立即同步会按 UUID 和更新时间合并，时间较新的版本胜出。格式化云端会清空 WebDAV 数据并写入正确文件特征码，不会删除本地笔记。</p>
         </section>
         <section class="settings-section">
           <h3>分类设置 <small>最多 4 个字</small></h3>
@@ -134,8 +142,8 @@
     </section>
 
     <nav class="bottom-tabs">
-      <button data-tab="notes" class="active"><span>▤</span>笔记</button>
-      <button id="newNoteTab" class="new-tab"><span>＋</span>新建</button>
+      <button data-tab="list" class="active"><span>▤</span>列表</button>
+      <button data-tab="note" class="note-tab"><span aria-hidden="true">✎</span>笔记</button>
       <button data-tab="settings"><span>⚙</span>设置</button>
     </nav>
   </main>

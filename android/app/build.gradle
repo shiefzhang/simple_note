@@ -12,7 +12,7 @@ android {
         targetSdk 35
         versionCode 1
         versionName '1.0.0'
-        manifestPlaceholders = [appLabel: '纸间']
+        manifestPlaceholders = [appLabel: '纸间 · 简单笔记']
     }
 
     applicationVariants.all { variant ->
@@ -30,7 +30,7 @@ android {
         debug {
             applicationIdSuffix '.dev'
             versionNameSuffix '-dev'
-            manifestPlaceholders = [appLabel: '纸间·新版']
+            manifestPlaceholders = [appLabel: '纸间 · 简单笔记']
         }
         release {
             minifyEnabled false

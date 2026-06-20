@@ -3,8 +3,10 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const isLocalApp = Boolean(window.LocalNotes);
 const ARCHIVE_SIGNATURE = "SIMPLE_NOTE_WEBDAV_V1";
 let notes = [], settings = {categories: ["随笔", "待办", "阅读"]};
-let selected = null, filter = "全部", saveTimer, remoteExists = false;
+let selected = null, filter = "全部", remoteExists = false;
 let activeTheme = localStorage.getItem("simple_note_theme") || "paper";
+let noteSearchMatches = [], noteSearchIndex = -1;
+const lastNoteKey = "simple_note_last_note";
 
 function applyTheme(theme) {
   activeTheme = ["clean", "studio", "paper"].includes(theme) ? theme : "paper";
@@ -87,6 +89,10 @@ async function loadRemote() {
   settings.categories = result.payload.categories?.length
     ? result.payload.categories
     : ["随笔", "待办", "阅读"];
+  if (result.legacy) {
+    await saveRemote();
+    toast("旧版数据已升级并加入特征码");
+  }
   return result;
 }
 async function saveRemote() {
@@ -170,7 +176,217 @@ function safeHtml(value) {
   });
   return template.innerHTML;
 }
-function switchEditorView(view) {
+function setNoteSaveState(state) {
+  const button = $("#saveNoteBtn");
+  if (!button) return;
+  button.classList.toggle("dirty", state === "dirty");
+  button.classList.toggle("saving", state === "saving");
+  button.disabled = state !== "dirty";
+  button.textContent = state === "saving" ? "保存中…" : "保存笔记";
+}
+function markNoteDirty() {
+  if (!selected) return;
+  setNoteSaveState("dirty");
+  $("#syncText").textContent = isLocalApp ? "有未保存更改" : "等待写入 WebDAV…";
+  if ($("#noteSearch")?.value) runNoteSearch("nearest");
+}
+function setSearchMode(active) {
+  const sourceView = $("[data-view].active")?.dataset.view === "source";
+  $("#searchPreview").classList.toggle("hidden", !active);
+  $("#noteContent").classList.toggle("hidden", active || !sourceView);
+  $(".format-bar").classList.toggle("hidden", active || !sourceView);
+  $("#inlinePreview").classList.toggle("hidden", active || sourceView);
+}
+function clearNoteSearch(clearInput = true) {
+  if (clearInput) $("#noteSearch").value = "";
+  noteSearchMatches = [];
+  noteSearchIndex = -1;
+  $("#noteSearchCount").textContent = "0/0";
+  $("#searchPreview").innerHTML = "";
+  setSearchMode(false);
+}
+function runNoteSearch(action = "nearest") {
+  const query = $("#noteSearch").value;
+  if (!query) {
+    clearNoteSearch(false);
+    return;
+  }
+  const content = $("#noteContent").value;
+  const haystack = content.toLocaleLowerCase();
+  const needle = query.toLocaleLowerCase();
+  noteSearchMatches = [];
+  for (let start = 0; (start = haystack.indexOf(needle, start)) !== -1;
+       start += Math.max(needle.length, 1)) {
+    noteSearchMatches.push(start);
+  }
+  if (!noteSearchMatches.length) {
+    noteSearchIndex = -1;
+    $("#noteSearchCount").textContent = "0/0";
+    $("#searchPreview").textContent = content;
+    setSearchMode(true);
+    return;
+  }
+  if (action === "next") {
+    noteSearchIndex = (noteSearchIndex + 1) % noteSearchMatches.length;
+  } else if (action === "prev") {
+    noteSearchIndex = (noteSearchIndex - 1 + noteSearchMatches.length) % noteSearchMatches.length;
+  } else {
+    const cursor = $("#noteContent").selectionStart || 0;
+    const nearest = noteSearchMatches.findIndex(position => position >= cursor);
+    noteSearchIndex = nearest === -1 ? 0 : nearest;
+  }
+  let html = "", offset = 0;
+  noteSearchMatches.forEach((position, index) => {
+    html += escapeHtml(content.slice(offset, position));
+    html += `<mark class="${index === noteSearchIndex ? "current" : ""}">${escapeHtml(content.slice(position, position + query.length))}</mark>`;
+    offset = position + query.length;
+  });
+  $("#searchPreview").innerHTML = html + escapeHtml(content.slice(offset));
+  $("#noteSearchCount").textContent = `${noteSearchIndex + 1}/${noteSearchMatches.length}`;
+  setSearchMode(true);
+  requestAnimationFrame(() => {
+    const preview = $("#searchPreview");
+    const current = preview.querySelector("mark.current");
+    if (current) {
+      preview.scrollTop = Math.max(
+        0, current.offsetTop - preview.clientHeight / 2 + current.offsetHeight / 2);
+    }
+  });
+}
+function editorScrollProgress(element) {
+  const search = $("#searchPreview");
+  const active = element || (!search.classList.contains("hidden")
+    ? search
+    : ($("[data-view].active")?.dataset.view === "source"
+      ? $("#noteContent") : $("#inlinePreview")));
+  const range = Math.max(0, active.scrollHeight - active.clientHeight);
+  return range ? active.scrollTop / range : 0;
+}
+function normalizeAnchorText(value, withMap = false) {
+  let text = "", map = [], inTag = false, lastSpace = false;
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index];
+    if (char === "<") {
+      inTag = true;
+      continue;
+    }
+    if (inTag) {
+      if (char === ">") inTag = false;
+      continue;
+    }
+    if ("#>*_`[]".includes(char)) continue;
+    if (/\s/.test(char)) {
+      if (text && !lastSpace) {
+        text += " ";
+        map.push(index);
+        lastSpace = true;
+      }
+      continue;
+    }
+    text += char.toLocaleLowerCase();
+    map.push(index);
+    lastSpace = false;
+  }
+  return withMap ? {text: text.trim(), map} : text.trim();
+}
+function visiblePreviewText(preview) {
+  const rect = preview.getBoundingClientRect();
+  const x = Math.min(rect.right - 8, rect.left + 24);
+  const y = rect.top + 10;
+  const caret = document.caretRangeFromPoint?.(x, y);
+  if (caret?.startContainer?.nodeType === Node.TEXT_NODE) {
+    const value = caret.startContainer.data;
+    const start = Math.max(0, Math.min(caret.startOffset, value.length - 1));
+    const text = value.slice(start, start + 60).trim() ||
+      value.slice(Math.max(0, start - 30), start + 30).trim();
+    if (text) return text;
+  }
+  const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode())) {
+    if (!node.data.trim()) continue;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    if (range.getBoundingClientRect().bottom >= y) return node.data.trim().slice(0, 60);
+  }
+  return "";
+}
+function sourceOffsetForText(content, value, progress) {
+  const source = normalizeAnchorText(content, true);
+  const needle = normalizeAnchorText(value).slice(0, 36);
+  if (!needle) return -1;
+  const expected = Math.round(progress * source.text.length);
+  let best = -1, bestDistance = Infinity, start = 0;
+  while ((start = source.text.indexOf(needle, start)) !== -1) {
+    const distance = Math.abs(start - expected);
+    if (distance < bestDistance) {
+      best = start;
+      bestDistance = distance;
+    }
+    start += Math.max(needle.length, 1);
+  }
+  return best === -1 ? -1 : (source.map[best] ?? -1);
+}
+function captureEditorAnchor() {
+  const source = $("#noteContent"), content = source.value;
+  const sourceView = $("[data-view].active")?.dataset.view === "source";
+  const active = sourceView ? source : $("#inlinePreview");
+  const progress = editorScrollProgress(active);
+  if (sourceView) {
+    const offset = Math.round(progress * content.length);
+    const lineStart = content.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+    const lineEnd = content.indexOf("\n", lineStart);
+    const text = content.slice(lineStart, lineEnd === -1 ? content.length : lineEnd)
+      .replace(/<[^>]+>|[#>*_`\-\[\]]/g, " ").trim().slice(0, 40);
+    return {offset: lineStart, text, progress};
+  }
+  const text = visiblePreviewText(active);
+  return {offset: sourceOffsetForText(content, text, progress), text, progress};
+}
+function sourceScrollTopForOffset(source, offset) {
+  const style = getComputedStyle(source);
+  const mirror = document.createElement("div");
+  Object.assign(mirror.style, {
+    position: "fixed", visibility: "hidden", pointerEvents: "none",
+    left: "-10000px", top: "0", width: `${source.clientWidth}px`,
+    padding: style.padding, border: style.border, font: style.font,
+    lineHeight: style.lineHeight, letterSpacing: style.letterSpacing,
+    whiteSpace: "pre-wrap", overflowWrap: "break-word", boxSizing: "border-box"
+  });
+  mirror.textContent = source.value.slice(0, Math.max(0, offset));
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  mirror.append(marker);
+  document.body.append(mirror);
+  const top = marker.offsetTop;
+  mirror.remove();
+  return top;
+}
+function restoreEditorAnchor(element, anchor, sourceView) {
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (sourceView && anchor.offset >= 0) {
+      element.scrollTop = Math.max(0, sourceScrollTopForOffset(element, anchor.offset) - 8);
+      return;
+    }
+    if (!sourceView && anchor.text) {
+      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        const index = node.data.indexOf(anchor.text);
+        if (index === -1) continue;
+        const range = document.createRange();
+        range.setStart(node, index);
+        range.setEnd(node, index + anchor.text.length);
+        element.scrollTop += range.getBoundingClientRect().top -
+          element.getBoundingClientRect().top - 8;
+        return;
+      }
+    }
+    const range = Math.max(0, element.scrollHeight - element.clientHeight);
+    element.scrollTop = range * Math.min(1, Math.max(0, anchor.progress));
+  }));
+}
+function switchEditorView(view, focusSource = true, anchor = captureEditorAnchor()) {
   if (!selected) return;
   const source = view === "source";
   $("#noteContent").classList.toggle("hidden", !source);
@@ -178,14 +394,20 @@ function switchEditorView(view) {
   $("#inlinePreview").classList.toggle("hidden", source);
   $$("[data-view]").forEach(button =>
     button.classList.toggle("active", button.dataset.view === view));
-  if (source) return $("#noteContent").focus();
+  if (source) {
+    if (focusSource) $("#noteContent").focus({preventScroll: true});
+    restoreEditorAnchor($("#noteContent"), anchor, true);
+    return;
+  }
   selected.format = view;
   const preview = $("#inlinePreview");
+  preview.classList.toggle("html-lines", view === "html");
   preview.innerHTML = view === "markdown"
     ? renderLocalMarkdown($("#noteContent").value)
     : safeHtml($("#noteContent").value);
   renderMath(preview);
-  queueSave();
+  restoreEditorAnchor(preview, anchor, false);
+  markNoteDirty();
 }
 function dateText(value) {
   const date = new Date(value), now = new Date();
@@ -204,7 +426,8 @@ async function boot(load = true) {
     } else if (load) {
       await loadRemote();
     }
-    selected = notes[0] || null;
+    selected = notes.find(note => note.id === localStorage.getItem(lastNoteKey)) ||
+      notes[0] || null;
     renderAll();
     if (!isLocalApp && !remoteExists) {
       await saveRemote();
@@ -219,12 +442,28 @@ async function boot(load = true) {
 function renderAll() {
   renderCategories(); renderNotes(); renderSettings(); selectNote(selected?.id);
 }
+function visibleCategories() {
+  const result = [];
+  [...settings.categories, ...notes.map(note => note.category)].forEach(category => {
+    if (category && !result.includes(category)) result.push(category);
+  });
+  return result;
+}
+function categoryEditorValues() {
+  const values = $$("#categoryEditor input").map(input => input.value.trim()).filter(Boolean);
+  return values.length ? values : ["随笔"];
+}
+function syncCategoryEditor() {
+  settings.categories = categoryEditorValues();
+  renderCategories();
+  if (selected) $("#categorySelect").value = selected.category;
+}
 function renderCategories() {
-  const categories = ["全部", ...settings.categories];
+  const categories = ["全部", ...visibleCategories()];
   $("#categories").innerHTML = categories.map(category =>
     `<button data-category="${escapeHtml(category)}" class="${filter === category ? "active" : ""}">${escapeHtml(category)}</button>`
   ).join("");
-  $("#categorySelect").innerHTML = settings.categories.map(category =>
+  $("#categorySelect").innerHTML = visibleCategories().map(category =>
     `<option>${escapeHtml(category)}</option>`).join("");
   $$("#categories button").forEach(button => button.onclick = () => {
     filter = button.dataset.category;
@@ -247,69 +486,70 @@ function renderNotes() {
     element.onclick = () => selectNote(element.dataset.id, true));
 }
 function selectNote(id, showEditor = false) {
+  clearNoteSearch();
   selected = notes.find(note => note.id === id) || selected;
   if (!selected) {
     $("#editorPane").classList.add("hidden");
     return;
   }
+  if (!selected.isDraft) localStorage.setItem(lastNoteKey, selected.id);
   $("#noteTitle").value = selected.title;
   $("#noteContent").value = selected.content;
   $("#categorySelect").value = selected.category;
   $("#editorPane").classList.remove("hidden");
-  switchEditorView("source");
+  switchEditorView("source", false, {offset: 0, text: "", progress: 0});
+  setNoteSaveState("clean");
   renderNotes();
-  if (showEditor && matchMedia("(max-width:800px)").matches)
-    $("#editorPane").classList.remove("hidden");
+  if (showEditor && matchMedia("(max-width:800px)").matches) showTab("note");
 }
 async function createNote() {
+  clearNoteSearch();
   const now = new Date().toISOString();
   const category = filter === "全部" ? settings.categories[0] || "随笔" : filter;
-  if (isLocalApp) {
-    const note = await localApi("/api/notes", {
-      method: "POST",
-      body: JSON.stringify({title: "新笔记", content: "", format: "markdown", category})
-    });
-    notes.unshift(note); selected = note;
-  } else {
-    selected = {
-      id: crypto.randomUUID(), title: "新笔记", content: "", format: "markdown",
-      category, created_at: now, updated_at: now, deleted: 0
-    };
-    notes.unshift(selected);
-    await saveRemote();
-  }
-  renderAll(); $("#editorPane").classList.remove("hidden"); $("#noteTitle").focus();
+  selected = {
+    id: "draft", title: "", content: "", format: "markdown",
+    category, created_at: now, updated_at: now, deleted: 0, isDraft: true
+  };
+  $("#noteTitle").value = "";
+  $("#noteContent").value = "";
+  $("#categorySelect").value = category;
+  switchEditorView("source", false, {offset: 0, text: "", progress: 0});
+  setNoteSaveState("dirty");
+  renderNotes();
+  $("#editorPane").classList.remove("hidden");
+  if (!matchMedia("(max-width:800px)").matches) $("#noteTitle").focus();
 }
-function queueSave() {
-  if (!selected) return;
-  $("#saveState").textContent = "保存中…";
-  $("#syncText").textContent = "等待写入 WebDAV…";
-  clearTimeout(saveTimer);
+async function saveCurrent() {
+  if (!selected || $("#saveNoteBtn").disabled) return;
+  setNoteSaveState("saving");
   selected.title = $("#noteTitle").value;
   selected.content = $("#noteContent").value;
   selected.category = $("#categorySelect").value;
   selected.updated_at = new Date().toISOString();
-  saveTimer = setTimeout(saveCurrent, 700);
-  renderNotes();
-}
-async function saveCurrent() {
   try {
     if (isLocalApp) {
-      const updated = await localApi(`/api/notes/${selected.id}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          title: selected.title, content: selected.content,
-          format: selected.format, category: selected.category
-        })
+      const body = JSON.stringify({
+        title: selected.title || "新笔记", content: selected.content,
+        format: selected.format, category: selected.category
       });
-      Object.assign(selected, updated);
+      const updated = selected.isDraft
+        ? await localApi("/api/notes", {method: "POST", body})
+        : await localApi(`/api/notes/${selected.id}`, {method: "PUT", body});
+      if (selected.isDraft) notes.unshift(updated);
+      selected = updated;
+      localStorage.setItem(lastNoteKey, selected.id);
     } else {
+      if (selected.isDraft) {
+        selected = {...selected, id: crypto.randomUUID(), title: selected.title || "新笔记", isDraft: false};
+        notes.unshift(selected);
+      }
       await saveRemote();
+      localStorage.setItem(lastNoteKey, selected.id);
     }
-    $("#saveState").textContent = "已保存";
+    setNoteSaveState("clean");
     renderNotes();
   } catch (error) {
-    $("#saveState").textContent = "保存失败";
+    setNoteSaveState("dirty");
     $("#syncText").textContent = "WebDAV 写入失败";
     toast(error.message);
   }
@@ -325,12 +565,13 @@ function renderSettings() {
     `<div class="category-row"><input maxlength="4" value="${escapeHtml(category)}" data-ci="${index}"><button data-remove="${index}">删除</button></div>`
   ).join("");
   $$("[data-remove]").forEach(button => button.onclick = () => {
-    settings.categories.splice(Number(button.dataset.remove), 1); renderSettings();
+    settings.categories.splice(Number(button.dataset.remove), 1); renderSettings(); renderCategories();
   });
+  $$("#categoryEditor input").forEach(input => input.oninput = syncCategoryEditor);
   applyTheme(activeTheme);
 }
 async function persistSettings(showToast = true) {
-  const categories = $$("#categoryEditor input").map(input => input.value.trim()).filter(Boolean);
+  let categories = categoryEditorValues();
   if (categories.some(category => [...category].length > 4)) {
     toast("分类最多 4 个字"); return false;
   }
@@ -350,6 +591,7 @@ async function persistSettings(showToast = true) {
       await saveRemote();
     }
     renderCategories();
+    if (selected) $("#categorySelect").value = selected.category;
     if (showToast) { renderSettings(); toast("设置已保存"); }
     return true;
   } catch (error) {
@@ -372,7 +614,8 @@ async function sync(direction) {
     } else {
       await persistSettings(false);
     }
-    selected = notes[0] || null;
+    selected = notes.find(note => note.id === localStorage.getItem(lastNoteKey)) ||
+      notes[0] || null;
     renderAll(); toast(direction === "pull" ? "已从 WebDAV 重新读取" : "已写入 WebDAV");
   } catch (error) {
     status.textContent = "操作失败"; toast(error.message);
@@ -381,7 +624,7 @@ async function sync(direction) {
 function insertText(text) {
   const element = $("#noteContent"), start = element.selectionStart, end = element.selectionEnd;
   element.value = element.value.slice(0, start) + text + element.value.slice(end);
-  element.focus(); element.selectionStart = element.selectionEnd = start + text.length; queueSave();
+  element.focus(); element.selectionStart = element.selectionEnd = start + text.length; markNoteDirty();
 }
 function togglePassword(inputSelector, buttonSelector) {
   const input = $(inputSelector), button = $(buttonSelector), show = input.type === "password";
@@ -396,6 +639,30 @@ function fillLoginFromCookies() {
   $("#loginDavUser").value = dav.username;
   $("#loginDavPassword").value = dav.password;
 }
+function showTab(tab, forceEditor = false) {
+  const settingsTab = tab === "settings";
+  let noteTab = tab === "note";
+  if (noteTab && !selected) {
+    selected = notes.find(note => note.id === localStorage.getItem(lastNoteKey)) ||
+      notes[0] || null;
+    if (selected) selectNote(selected.id);
+  }
+  if (noteTab && !selected) {
+    tab = "list";
+    noteTab = false;
+  }
+  $$("[data-tab]").forEach(button =>
+    button.classList.toggle("active", button.dataset.tab === tab));
+  $("#settingsPane").classList.toggle("hidden", !settingsTab);
+  $("#notesPane").classList.toggle("hidden", settingsTab);
+  const hideEditor = settingsTab ||
+    (matchMedia("(max-width:800px)").matches && !noteTab && !forceEditor);
+  $("#editorPane").classList.toggle("hidden", hideEditor);
+}
+async function createAndOpenNote() {
+  await createNote();
+  showTab("note", true);
+}
 
 $("#loginForm").onsubmit = async event => {
   event.preventDefault();
@@ -409,13 +676,28 @@ $("#loginForm").onsubmit = async event => {
 };
 $("#toggleLoginPassword").onclick = () => togglePassword("#loginDavPassword", "#toggleLoginPassword");
 $("#toggleDavPassword").onclick = () => togglePassword("#davPassword", "#toggleDavPassword");
-$("#addNoteTop").onclick = createNote;
-$("#newNoteTab").onclick = createNote;
+$("#addNoteTop").onclick = createAndOpenNote;
 $("#search").oninput = renderNotes;
-$("#noteTitle").oninput = queueSave;
-$("#noteContent").oninput = queueSave;
-$("#categorySelect").onchange = queueSave;
-$$("[data-view]").forEach(button => button.onclick = () => switchEditorView(button.dataset.view));
+$("#noteTitle").oninput = markNoteDirty;
+$("#noteContent").oninput = markNoteDirty;
+$("#categorySelect").onchange = markNoteDirty;
+$("#saveNoteBtn").onclick = saveCurrent;
+$$("[data-view]").forEach(button => button.onclick = () => {
+  const anchor = captureEditorAnchor();
+  const query = $("#noteSearch").value;
+  clearNoteSearch(false);
+  switchEditorView(button.dataset.view, false, anchor);
+  if (query) runNoteSearch("nearest");
+});
+$("#noteSearch").oninput = () => runNoteSearch("nearest");
+$("#noteSearch").onkeydown = event => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    runNoteSearch(event.shiftKey ? "prev" : "next");
+  }
+};
+$("#noteSearchPrev").onclick = () => runNoteSearch("prev");
+$("#noteSearchNext").onclick = () => runNoteSearch("next");
 $$("[data-insert]").forEach(button => button.onclick = () => insertText(button.dataset.insert));
 $("#imageInput").onchange = event => {
   const file = event.target.files[0];
@@ -428,14 +710,17 @@ $("#imageInput").onchange = event => {
 };
 $("#deleteBtn").onclick = async () => {
   if (!selected || !confirm("确定删除这篇笔记？")) return;
-  if (isLocalApp) await localApi(`/api/notes/${selected.id}`, {method: "DELETE"});
+  if (!selected.isDraft && isLocalApp) await localApi(`/api/notes/${selected.id}`, {method: "DELETE"});
   notes = notes.filter(note => note.id !== selected.id);
-  if (!isLocalApp) await saveRemote();
-  selected = notes[0] || null; renderAll();
+  if (!selected?.isDraft && !isLocalApp) await saveRemote();
+  selected = notes[0] || null;
+  if (selected) localStorage.setItem(lastNoteKey, selected.id);
+  else localStorage.removeItem(lastNoteKey);
+  renderAll();
 };
 $("#openDrawer").onclick = () => $("#sidebar").classList.add("open");
 $("#closeDrawer").onclick = () => $("#sidebar").classList.remove("open");
-$("#addCategory").onclick = () => { settings.categories.push("新分类"); renderSettings(); };
+$("#addCategory").onclick = () => { settings.categories.push("新分类"); renderSettings(); renderCategories(); };
 $("#saveSettings").onclick = () => persistSettings(true);
 $("#syncNowBtn").onclick = () => sync("push");
 $("#pullBtn").onclick = () => sync("pull");
@@ -444,14 +729,7 @@ $("#logoutBtn").onclick = () => {
 };
 $$("[data-theme-choice]").forEach(button =>
   button.onclick = () => applyTheme(button.dataset.themeChoice));
-$$("[data-tab]").forEach(button => button.onclick = () => {
-  $$("[data-tab]").forEach(item => item.classList.toggle("active", item === button));
-  const settingsTab = button.dataset.tab === "settings";
-  $("#settingsPane").classList.toggle("hidden", !settingsTab);
-  $("#notesPane").classList.toggle("hidden", settingsTab);
-  $("#editorPane").classList.toggle("hidden",
-    settingsTab || (matchMedia("(max-width:800px)").matches && !selected));
-});
+$$("[data-tab]").forEach(button => button.onclick = () => showTab(button.dataset.tab));
 
 if (isLocalApp) {
   document.documentElement.classList.add("local-app");

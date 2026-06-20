@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f6f0e4">
   <title>纸间 · 简单笔记</title>
-  <link rel="stylesheet" href="vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <section id="loginView" class="login-view">
@@ -63,6 +63,12 @@
           <button data-view="html">HTML</button>
           <button data-view="source" class="active">源码</button>
         </div>
+        <div class="note-search">
+          <input id="noteSearch" type="search" placeholder="页内搜索" aria-label="页内搜索">
+          <span id="noteSearchCount">0/0</span>
+          <button id="noteSearchPrev" type="button" aria-label="上一个匹配">↑</button>
+          <button id="noteSearchNext" type="button" aria-label="下一个匹配">↓</button>
+        </div>
         <div class="editor-actions">
           <button id="deleteBtn" class="text-btn danger">删除</button>
         </div>
@@ -70,9 +76,10 @@
       <div class="editor-body">
         <div class="meta-row">
           <select id="categorySelect" aria-label="分类"></select>
-          <span id="saveState">已保存</span>
+          <button id="saveNoteBtn" class="save-note-button" type="button" disabled>保存笔记</button>
         </div>
         <input id="noteTitle" class="title-input" placeholder="无标题">
+        <article id="searchPreview" class="search-preview hidden"></article>
         <article id="inlinePreview" class="inline-preview hidden"></article>
         <textarea id="noteContent" placeholder="从这里开始记录…"></textarea>
         <div class="format-bar">
@@ -148,15 +155,15 @@
     </section>
 
     <nav class="bottom-tabs">
-      <button data-tab="notes" class="active"><span>▤</span>笔记</button>
-      <button id="newNoteTab" class="new-tab"><span>＋</span>新建</button>
+      <button data-tab="list" class="active"><span>▤</span>列表</button>
+      <button data-tab="note" class="note-tab"><span aria-hidden="true">✎</span>笔记</button>
       <button data-tab="settings"><span>⚙</span>设置</button>
     </nav>
   </main>
 
   <div id="toast" role="status"></div>
-  <script src="vendor/katex/katex.min.js"></script>
-  <script src="vendor/katex/contrib/auto-render.min.js"></script>
-  <script src="app.js"></script>
+  <script src="/static/vendor/katex/katex.min.js"></script>
+  <script src="/static/vendor/katex/contrib/auto-render.min.js"></script>
+  <script src="/static/app.js"></script>
 </body>
 </html>

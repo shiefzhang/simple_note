@@ -63,6 +63,17 @@ final class LocalBridge {
                 String password = input.optString("webdav_password", "");
                 if (!password.isEmpty()) db.setSetting("webdav_password", password);
                 db.setSetting("theme", input.optString("theme", "paper"));
+                JSONObject categoryRenames = input.optJSONObject("category_renames");
+                if (categoryRenames != null) {
+                    java.util.Iterator<String> keys = categoryRenames.keys();
+                    while (keys.hasNext()) {
+                        String oldValue = keys.next().trim();
+                        String newValue = categoryRenames.optString(oldValue).trim();
+                        if (!oldValue.isEmpty() && !newValue.isEmpty()) {
+                            db.renameCategory(oldValue, newValue);
+                        }
+                    }
+                }
                 JSONArray categories = input.optJSONArray("categories");
                 if (categories != null) {
                     java.util.ArrayList<String> values = new java.util.ArrayList<>();
@@ -72,7 +83,13 @@ final class LocalBridge {
                     }
                     db.categories(values);
                 }
-                return ok(new JSONObject().put("ok", true));
+                return ok(new JSONObject()
+                    .put("ok", true)
+                    .put("webdav_url", db.getSetting("webdav_url", ""))
+                    .put("webdav_username", db.getSetting("webdav_username", ""))
+                    .put("webdav_password", db.getSetting("webdav_password", ""))
+                    .put("theme", db.getSetting("theme", "paper"))
+                    .put("categories", new JSONArray(db.categories())));
             }
             if ("POST".equals(method) && "/api/sync/push".equals(path)) {
                 try {
@@ -80,7 +97,7 @@ final class LocalBridge {
                         requiredUrl(),
                         db.getSetting("webdav_username", ""),
                         db.getSetting("webdav_password", "")
-                    ));
+                    ), false);
                 } catch (Exception error) {
                     // The first sync may not have a remote file yet. Other failures must stop.
                     if (error.getMessage() == null || !error.getMessage().contains("404")) {
@@ -107,6 +124,18 @@ final class LocalBridge {
                 return ok(new JSONObject()
                     .put("ok", true)
                     .put("count", count)
+                    .put("synced_at", NoteDbHelper.now()));
+            }
+            if ("POST".equals(method) && "/api/sync/format".equals(path)) {
+                WebDavSync.upload(
+                    requiredUrl(),
+                    db.getSetting("webdav_username", ""),
+                    db.getSetting("webdav_password", ""),
+                    db.emptyArchiveJson()
+                );
+                return ok(new JSONObject()
+                    .put("ok", true)
+                    .put("count", 0)
                     .put("synced_at", NoteDbHelper.now()));
             }
             return error("不支持的本地操作：" + method + " " + path);
