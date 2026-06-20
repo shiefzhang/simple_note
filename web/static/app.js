@@ -7,6 +7,8 @@ let selected = null, filter = "全部", remoteExists = false;
 let activeTheme = localStorage.getItem("simple_note_theme") || "paper";
 let noteSearchMatches = [], noteSearchIndex = -1;
 const lastNoteKey = "simple_note_last_note";
+const sidebarCollapsedKey = "simple_note_sidebar_collapsed";
+const notesCollapsedKey = "simple_note_notes_collapsed";
 
 function applyTheme(theme) {
   activeTheme = ["clean", "studio", "paper"].includes(theme) ? theme : "paper";
@@ -16,6 +18,22 @@ function applyTheme(theme) {
     button.classList.toggle("active", button.dataset.themeChoice === activeTheme));
 }
 applyTheme(activeTheme);
+
+function setPaneCollapsed(pane, collapsed) {
+  const isSidebar = pane === "sidebar";
+  const className = isSidebar ? "sidebar-collapsed" : "notes-collapsed";
+  const button = $(isSidebar ? "#toggleSidebar" : "#toggleNotesPane");
+  const label = isSidebar ? "分类" : "列表";
+  $("#appView").classList.toggle(className, collapsed);
+  button.setAttribute("aria-expanded", String(!collapsed));
+  button.setAttribute("aria-label", `${collapsed ? "展开" : "收起"}${label}`);
+  localStorage.setItem(isSidebar ? sidebarCollapsedKey : notesCollapsedKey, String(collapsed));
+}
+
+function restorePaneLayout() {
+  setPaneCollapsed("sidebar", localStorage.getItem(sidebarCollapsedKey) === "true");
+  setPaneCollapsed("notes", localStorage.getItem(notesCollapsedKey) === "true");
+}
 
 function setCookie(name, value, days = 30) {
   const secure = location.protocol === "https:" ? "; Secure" : "";
@@ -166,15 +184,165 @@ function renderMath(root) {
   });
 }
 function safeHtml(value) {
+  return sanitizeHtml(value);
+}
+function sanitizeHtml(value, stripStyles = false) {
   const template = document.createElement("template");
   template.innerHTML = value;
-  template.content.querySelectorAll("script,iframe,object,embed").forEach(node => node.remove());
+  template.content.querySelectorAll(
+    "script,style,iframe,object,embed,form,input,button,textarea,select,meta,link,base,svg,math"
+  ).forEach(node => node.remove());
+  const allowedAttributes = new Set([
+    "href", "src", "alt", "title", "colspan", "rowspan", "scope", "target", "rel",
+    "style", "class", "id", "width", "height", "datetime"
+  ]);
   template.content.querySelectorAll("*").forEach(node => {
     [...node.attributes].forEach(attr => {
-      if (attr.name.toLowerCase().startsWith("on")) node.removeAttribute(attr.name);
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim();
+      if (!allowedAttributes.has(name) || name.startsWith("on") ||
+          ["contenteditable", "spellcheck", "tabindex", "role"].includes(name) ||
+          name.startsWith("data-") || name.startsWith("aria-")) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      const compactValue = value.replace(/[\u0000-\u0020]/g, "");
+      if (name === "href" &&
+          !/^(?:https?:|mailto:|tel:|#|\/|\.\/|\.\.\/)/i.test(compactValue)) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      if (name === "src" &&
+          !/^(?:https?:|data:image\/(?:png|gif|jpeg|jpg|webp);base64,|blob:|\/|\.\/|\.\.\/)/i.test(compactValue)) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      if (stripStyles && ["style", "class", "id", "width", "height"].includes(name)) {
+        node.removeAttribute(attr.name);
+        return;
+      }
+      if (name === "style") {
+        const allowed = value.split(";").map(rule => rule.trim()).filter(rule =>
+          /^(?:text-align|font-weight|font-style|text-decoration|vertical-align|white-space)\s*:/i.test(rule));
+        if (allowed.length) node.setAttribute("style", allowed.join("; "));
+        else node.removeAttribute("style");
+      }
+      if (name === "class" && /^(?:Mso|Apple-|docs-|notion-|ql-)/i.test(value)) {
+        node.removeAttribute("class");
+      }
     });
+    if (node.getAttribute("target") === "_blank") {
+      node.setAttribute("rel", "noopener noreferrer");
+    }
   });
   return template.innerHTML;
+}
+const htmlBlockTags = new Set([
+  "ADDRESS", "ARTICLE", "ASIDE", "BLOCKQUOTE", "DIV", "DL", "FIELDSET", "FIGCAPTION",
+  "FIGURE", "FOOTER", "FORM", "H1", "H2", "H3", "H4", "H5", "H6", "HEADER", "HR",
+  "LI", "MAIN", "NAV", "OL", "P", "PRE", "SECTION", "TABLE", "UL"
+]);
+const htmlVoidTags = new Set(["AREA", "BASE", "BR", "COL", "EMBED", "HR", "IMG", "INPUT", "LINK", "META", "SOURCE", "TRACK", "WBR"]);
+function formatHtml(value) {
+  const template = document.createElement("template");
+  template.innerHTML = sanitizeHtml(value);
+  const lines = [];
+  function serialize(node, depth = 0) {
+    const indent = "  ".repeat(depth);
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.data.replace(/\s+/g, " ").trim();
+      if (text) lines.push(`${indent}${text}`);
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const tag = node.tagName.toLowerCase();
+    const attrs = [...node.attributes]
+      .map(attr => ` ${attr.name}="${attr.value.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`).join("");
+    if (htmlVoidTags.has(node.tagName)) {
+      lines.push(`${indent}<${tag}${attrs}>`);
+      return;
+    }
+    const children = [...node.childNodes];
+    const inlineOnly = children.length &&
+      children.every(child => child.nodeType === Node.TEXT_NODE ||
+        (child.nodeType === Node.ELEMENT_NODE && !htmlBlockTags.has(child.tagName)));
+    if (!children.length) {
+      lines.push(`${indent}<${tag}${attrs}></${tag}>`);
+    } else if (inlineOnly) {
+      lines.push(`${indent}<${tag}${attrs}>${node.innerHTML.trim()}</${tag}>`);
+    } else {
+      lines.push(`${indent}<${tag}${attrs}>`);
+      children.forEach(child => serialize(child, depth + 1));
+      lines.push(`${indent}</${tag}>`);
+    }
+  }
+  [...template.content.childNodes].forEach(node => serialize(node));
+  return lines.join("\n").trim();
+}
+function htmlToMarkdown(value) {
+  const template = document.createElement("template");
+  template.innerHTML = sanitizeHtml(value, true);
+  function convert(node, listDepth = 0) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.data.trim() ? node.data.replace(/\s+/g, " ") : "";
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const content = [...node.childNodes].map(child => convert(child, listDepth)).join("");
+    switch (node.tagName) {
+      case "H1": case "H2": case "H3": case "H4": case "H5": case "H6":
+        return `${"#".repeat(Number(node.tagName[1]))} ${content.trim()}\n\n`;
+      case "P": case "DIV": case "SECTION": case "ARTICLE":
+        return `${content.trim()}\n\n`;
+      case "BR": return "\n";
+      case "STRONG": case "B": return `**${content.trim()}**`;
+      case "EM": case "I": return `*${content.trim()}*`;
+      case "DEL": case "S": return `~~${content.trim()}~~`;
+      case "CODE": return node.parentElement?.tagName === "PRE" ? content : `\`${content.trim()}\``;
+      case "PRE": return `\`\`\`\n${node.textContent.trim()}\n\`\`\`\n\n`;
+      case "BLOCKQUOTE": return `${content.trim().split("\n").map(line => `> ${line}`).join("\n")}\n\n`;
+      case "A": return node.getAttribute("href") ? `[${content.trim() || node.href}](${node.getAttribute("href")})` : content;
+      case "IMG": return `![${node.getAttribute("alt") || "图片"}](${node.getAttribute("src") || ""})`;
+      case "UL": case "OL": return `${[...node.children].map(child => convert(child, listDepth + 1)).join("")}\n`;
+      case "LI": {
+        const parent = node.parentElement?.tagName;
+        const index = parent === "OL" ? [...node.parentElement.children].indexOf(node) + 1 : "-";
+        return `${"  ".repeat(Math.max(0, listDepth - 1))}${index}${parent === "OL" ? "." : ""} ${content.trim()}\n`;
+      }
+      case "HR": return "\n---\n\n";
+      case "TABLE": {
+        const rows = [...node.querySelectorAll("tr")].map(row =>
+          [...row.querySelectorAll("th,td")].map(cell => cell.textContent.trim()));
+        if (!rows.length) return "";
+        const width = Math.max(...rows.map(row => row.length));
+        const normalized = rows.map(row => [...row, ...Array(width - row.length).fill("")]);
+        return `${normalized.map(row => `| ${row.join(" | ")} |`).join("\n")
+          .replace("\n", `\n| ${Array(width).fill("---").join(" | ")} |\n`)}\n\n`;
+      }
+      default: return content;
+    }
+  }
+  return [...template.content.childNodes].map(node => convert(node)).join("")
+    .replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+function replaceEditorContent(value, format, message) {
+  const editor = $("#noteContent");
+  editor.value = value;
+  selected.format = format;
+  markNoteDirty();
+  switchEditorView("source", false, {offset: 0, text: "", progress: 0});
+  toast(message);
+}
+function optimizeCurrentHtml(action) {
+  if (!selected) return;
+  const value = $("#noteContent").value;
+  if (!/<[a-z][\s\S]*>/i.test(value)) {
+    toast("当前内容不是 HTML");
+    return;
+  }
+  if (action === "clean") replaceEditorContent(sanitizeHtml(value), "html", "HTML 已安全清理");
+  if (action === "format") replaceEditorContent(formatHtml(value), "html", "HTML 已格式化");
+  if (action === "strip") replaceEditorContent(sanitizeHtml(value, true), "html", "HTML 样式已移除");
+  if (action === "markdown") replaceEditorContent(htmlToMarkdown(value), "markdown", "已转换为 Markdown");
 }
 function setNoteSaveState(state) {
   const button = $("#saveNoteBtn");
@@ -248,8 +416,10 @@ function runNoteSearch(action = "nearest") {
     const preview = $("#searchPreview");
     const current = preview.querySelector("mark.current");
     if (current) {
-      preview.scrollTop = Math.max(
-        0, current.offsetTop - preview.clientHeight / 2 + current.offsetHeight / 2);
+      const previewRect = preview.getBoundingClientRect();
+      const currentRect = current.getBoundingClientRect();
+      preview.scrollTop += currentRect.top - previewRect.top
+        - preview.clientHeight / 2 + currentRect.height / 2;
     }
   });
 }
@@ -287,7 +457,11 @@ function normalizeAnchorText(value, withMap = false) {
     map.push(index);
     lastSpace = false;
   }
-  return withMap ? {text: text.trim(), map} : text.trim();
+  const leading = text.length - text.trimStart().length;
+  const normalized = text.trim();
+  return withMap
+    ? {text: normalized, map: map.slice(leading, leading + normalized.length)}
+    : normalized;
 }
 function visiblePreviewText(preview) {
   const rect = preview.getBoundingClientRect();
@@ -327,14 +501,23 @@ function sourceOffsetForText(content, value, progress) {
   }
   return best === -1 ? -1 : (source.map[best] ?? -1);
 }
+function sourceOffsetAtScrollTop(source) {
+  const target = Math.max(0, source.scrollTop + 4);
+  let low = 0, high = source.value.length;
+  while (low < high) {
+    const middle = Math.floor((low + high + 1) / 2);
+    if (sourceScrollTopForOffset(source, middle) <= target) low = middle;
+    else high = middle - 1;
+  }
+  return source.value.lastIndexOf("\n", Math.max(0, low - 1)) + 1;
+}
 function captureEditorAnchor() {
   const source = $("#noteContent"), content = source.value;
   const sourceView = $("[data-view].active")?.dataset.view === "source";
   const active = sourceView ? source : $("#inlinePreview");
   const progress = editorScrollProgress(active);
   if (sourceView) {
-    const offset = Math.round(progress * content.length);
-    const lineStart = content.lastIndexOf("\n", Math.max(0, offset - 1)) + 1;
+    const lineStart = sourceOffsetAtScrollTop(source);
     const lineEnd = content.indexOf("\n", lineStart);
     const text = content.slice(lineStart, lineEnd === -1 ? content.length : lineEnd)
       .replace(/<[^>]+>|[#>*_`\-\[\]]/g, " ").trim().slice(0, 40);
@@ -362,6 +545,31 @@ function sourceScrollTopForOffset(source, offset) {
   mirror.remove();
   return top;
 }
+function previewRangeForText(element, value) {
+  const needle = normalizeAnchorText(value).slice(0, 36);
+  if (!needle) return null;
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let combined = "", map = [], node;
+  while ((node = walker.nextNode())) {
+    const normalized = normalizeAnchorText(node.data, true);
+    for (let index = 0; index < normalized.text.length; index++) {
+      combined += normalized.text[index];
+      map.push({node, offset: normalized.map[index] ?? 0});
+    }
+    if (combined && !combined.endsWith(" ")) {
+      combined += " ";
+      map.push({node, offset: node.data.length});
+    }
+  }
+  const start = combined.indexOf(needle);
+  if (start === -1 || !map[start]) return null;
+  const end = Math.min(map.length - 1, start + needle.length - 1);
+  const range = document.createRange();
+  range.setStart(map[start].node, Math.min(map[start].offset, map[start].node.data.length));
+  range.setEnd(map[end].node, Math.min(map[end].offset + 1, map[end].node.data.length));
+  return range;
+}
 function restoreEditorAnchor(element, anchor, sourceView) {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     if (sourceView && anchor.offset >= 0) {
@@ -369,14 +577,8 @@ function restoreEditorAnchor(element, anchor, sourceView) {
       return;
     }
     if (!sourceView && anchor.text) {
-      const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
-      let node;
-      while ((node = walker.nextNode())) {
-        const index = node.data.indexOf(anchor.text);
-        if (index === -1) continue;
-        const range = document.createRange();
-        range.setStart(node, index);
-        range.setEnd(node, index + anchor.text.length);
+      const range = previewRangeForText(element, anchor.text);
+      if (range) {
         element.scrollTop += range.getBoundingClientRect().top -
           element.getBoundingClientRect().top - 8;
         return;
@@ -621,10 +823,59 @@ async function sync(direction) {
     status.textContent = "操作失败"; toast(error.message);
   }
 }
+
+async function refreshNotes() {
+  if ($("#saveNoteBtn").classList.contains("dirty") &&
+      !confirm("当前笔记有未保存修改。刷新会重新读取 WebDAV，确定继续吗？")) {
+    return;
+  }
+  const button = $("#refreshNotes");
+  button.disabled = true;
+  button.classList.add("refreshing");
+  button.setAttribute("aria-label", "正在刷新笔记");
+  try {
+    await sync("pull");
+  } finally {
+    button.disabled = false;
+    button.classList.remove("refreshing");
+    button.setAttribute("aria-label", "刷新笔记");
+  }
+}
+
 function insertText(text) {
   const element = $("#noteContent"), start = element.selectionStart, end = element.selectionEnd;
   element.value = element.value.slice(0, start) + text + element.value.slice(end);
   element.focus(); element.selectionStart = element.selectionEnd = start + text.length; markNoteDirty();
+}
+function insertHtmlFromClipboard(html) {
+  const cleaned = formatHtml(html);
+  if (!cleaned) {
+    toast("剪贴板中没有可保存的 HTML 内容");
+    return;
+  }
+  const editor = $("#noteContent");
+  const start = editor.selectionStart;
+  const end = editor.selectionEnd;
+  const before = editor.value.slice(0, start);
+  const after = editor.value.slice(end);
+  const prefix = before && !before.endsWith("\n") ? "\n" : "";
+  const suffix = after && !after.startsWith("\n") ? "\n" : "";
+  editor.value = before + prefix + cleaned + suffix + after;
+  selected.format = "html";
+  if (!$("#noteTitle").value.trim()) {
+    const template = document.createElement("template");
+    template.innerHTML = cleaned;
+    const heading = template.content.querySelector("h1,h2,h3,title");
+    if (heading?.textContent.trim()) $("#noteTitle").value = heading.textContent.trim().slice(0, 200);
+  }
+  markNoteDirty();
+  clearNoteSearch();
+  switchEditorView("html", false, {
+    offset: start + prefix.length,
+    text: cleanText(cleaned).slice(0, 40),
+    progress: 0
+  });
+  toast("HTML 已安全清理并载入，可预览后保存");
 }
 function togglePassword(inputSelector, buttonSelector) {
   const input = $(inputSelector), button = $(buttonSelector), show = input.type === "password";
@@ -676,10 +927,18 @@ $("#loginForm").onsubmit = async event => {
 };
 $("#toggleLoginPassword").onclick = () => togglePassword("#loginDavPassword", "#toggleLoginPassword");
 $("#toggleDavPassword").onclick = () => togglePassword("#davPassword", "#toggleDavPassword");
+$("#refreshNotes").onclick = refreshNotes;
 $("#addNoteTop").onclick = createAndOpenNote;
 $("#search").oninput = renderNotes;
 $("#noteTitle").oninput = markNoteDirty;
 $("#noteContent").oninput = markNoteDirty;
+$("#noteContent").onpaste = event => {
+  if (matchMedia("(max-width:800px)").matches) return;
+  const html = event.clipboardData?.getData("text/html");
+  if (!html) return;
+  event.preventDefault();
+  insertHtmlFromClipboard(html);
+};
 $("#categorySelect").onchange = markNoteDirty;
 $("#saveNoteBtn").onclick = saveCurrent;
 $$("[data-view]").forEach(button => button.onclick = () => {
@@ -699,6 +958,10 @@ $("#noteSearch").onkeydown = event => {
 $("#noteSearchPrev").onclick = () => runNoteSearch("prev");
 $("#noteSearchNext").onclick = () => runNoteSearch("next");
 $$("[data-insert]").forEach(button => button.onclick = () => insertText(button.dataset.insert));
+$("#cleanHtmlBtn").onclick = () => optimizeCurrentHtml("clean");
+$("#formatHtmlBtn").onclick = () => optimizeCurrentHtml("format");
+$("#stripHtmlStylesBtn").onclick = () => optimizeCurrentHtml("strip");
+$("#htmlToMarkdownBtn").onclick = () => optimizeCurrentHtml("markdown");
 $("#imageInput").onchange = event => {
   const file = event.target.files[0];
   if (!file) return;
@@ -720,6 +983,12 @@ $("#deleteBtn").onclick = async () => {
 };
 $("#openDrawer").onclick = () => $("#sidebar").classList.add("open");
 $("#closeDrawer").onclick = () => $("#sidebar").classList.remove("open");
+$("#toggleSidebar").onclick = () =>
+  setPaneCollapsed("sidebar", !$("#appView").classList.contains("sidebar-collapsed"));
+$("#toggleNotesPane").onclick = () =>
+  setPaneCollapsed("notes", !$("#appView").classList.contains("notes-collapsed"));
+$("#openThemeSettings").onclick = () => showTab("settings");
+$("#closeSettings").onclick = () => showTab("list");
 $("#addCategory").onclick = () => { settings.categories.push("新分类"); renderSettings(); renderCategories(); };
 $("#saveSettings").onclick = () => persistSettings(true);
 $("#syncNowBtn").onclick = () => sync("push");
@@ -736,6 +1005,7 @@ if (isLocalApp) {
   $("#loginView").classList.add("hidden");
   boot();
 } else {
+  restorePaneLayout();
   fillLoginFromCookies();
   if (credentials().url) boot(true);
 }

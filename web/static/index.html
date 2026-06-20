@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f6f0e4">
   <title>纸间 · 简单笔记</title>
   <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v=20260620-4">
 </head>
 <body>
   <section id="loginView" class="login-view">
@@ -41,16 +41,27 @@
 
   <main id="appView" class="app hidden">
     <aside id="sidebar" class="sidebar">
-      <header class="brand"><span>纸间</span><button id="closeDrawer" class="icon mobile-only" aria-label="关闭">×</button></header>
+      <header class="brand">
+        <span>纸间</span>
+        <button id="toggleSidebar" class="collapse-button desktop-only" type="button" aria-label="收起分类" aria-expanded="true"></button>
+        <button id="closeDrawer" class="icon mobile-only" aria-label="关闭">×</button>
+      </header>
       <nav id="categories" class="categories"></nav>
-      <div class="side-footer"><span id="syncDot" class="dot"></span><span id="syncText">WebDAV 已连接</span></div>
+      <div class="side-footer">
+        <button id="openThemeSettings" class="settings-entry" type="button"><span aria-hidden="true">⚙</span><span>设置</span></button>
+        <div class="sync-status"><span id="syncDot" class="dot"></span><span id="syncText">WebDAV 已连接</span></div>
+      </div>
     </aside>
 
     <section id="notesPane" class="notes-pane">
       <header class="pane-header">
         <button id="openDrawer" class="icon mobile-only" aria-label="分类">☰</button>
         <div><p class="eyebrow">NOTES</p><h2 id="listTitle">全部笔记</h2></div>
-        <button id="addNoteTop" class="icon" aria-label="新建">＋</button>
+        <div class="pane-actions">
+          <button id="refreshNotes" class="icon refresh-button" type="button" aria-label="刷新笔记" title="重新读取 WebDAV">↻</button>
+          <button id="addNoteTop" class="icon" aria-label="新建">＋</button>
+          <button id="toggleNotesPane" class="collapse-button desktop-only" type="button" aria-label="收起列表" aria-expanded="true"></button>
+        </div>
       </header>
       <div class="search-wrap"><input id="search" placeholder="搜索笔记"></div>
       <div id="noteList" class="note-list"></div>
@@ -90,7 +101,13 @@
           <button data-insert="$E=mc^2$" title="行内公式">Σ</button>
           <button data-insert="$$\n\\int_{a}^{b} f(x)\\,dx\n$$" title="块级公式">∫</button>
           <label class="image-button">图片<input id="imageInput" type="file" accept="image/*"></label>
-          <span>图片以 Base64 保存</span>
+          <div class="html-tools desktop-only" aria-label="HTML 优化工具">
+            <button id="cleanHtmlBtn" type="button" title="清除脚本、编辑器冗余和不安全属性">清理 HTML</button>
+            <button id="formatHtmlBtn" type="button" title="整理 HTML 缩进和换行">格式化</button>
+            <button id="stripHtmlStylesBtn" type="button" title="移除 style、class 和 id">去样式</button>
+            <button id="htmlToMarkdownBtn" type="button" title="将 HTML 转换为 Markdown">转 Markdown</button>
+          </div>
+          <span class="paste-hint">粘贴富文本会自动安全清理</span>
         </div>
       </div>
     </section>
@@ -98,7 +115,10 @@
     <section id="settingsPane" class="settings-pane hidden">
       <header class="settings-header">
         <div><p class="eyebrow">SETTINGS</p><h2>设置</h2></div>
-        <button id="saveSettings" class="header-save-button" type="button">保存</button>
+        <div class="settings-header-actions">
+          <button id="closeSettings" class="secondary desktop-only" type="button">返回笔记</button>
+          <button id="saveSettings" class="header-save-button" type="button">保存</button>
+        </div>
       </header>
       <div class="settings-scroll">
         <section class="settings-section">
@@ -164,6 +184,6 @@
   <div id="toast" role="status"></div>
   <script src="/static/vendor/katex/katex.min.js"></script>
   <script src="/static/vendor/katex/contrib/auto-render.min.js"></script>
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=20260620-7"></script>
 </body>
 </html>
