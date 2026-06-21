@@ -88,6 +88,11 @@ def index() -> FileResponse:
     return FileResponse(STATIC / "index.html")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> FileResponse:
+    return FileResponse(STATIC / "icons" / "favicon.ico")
+
+
 @app.post("/api/webdav/load")
 def load_webdav(body: WebDavCredentials) -> dict[str, Any]:
     """Read the note document without retaining credentials or data."""

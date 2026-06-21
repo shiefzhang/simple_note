@@ -6,9 +6,28 @@ let notes = [], settings = {categories: ["随笔", "待办", "阅读"]};
 let selected = null, filter = "全部", remoteExists = false;
 let activeTheme = localStorage.getItem("simple_note_theme") || "paper";
 let noteSearchMatches = [], noteSearchIndex = -1;
+let editorSelection = {start: 0, end: 0};
 const lastNoteKey = "simple_note_last_note";
 const sidebarCollapsedKey = "simple_note_sidebar_collapsed";
 const notesCollapsedKey = "simple_note_notes_collapsed";
+
+function createUuid() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  const bytes = new Uint8Array(16);
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    globalThis.crypto.getRandomValues(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index++) {
+      bytes[index] = Math.floor(Math.random() * 256);
+    }
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = [...bytes].map(value => value.toString(16).padStart(2, "0"));
+  return `${hex.slice(0, 4).join("")}-${hex.slice(4, 6).join("")}-${hex.slice(6, 8).join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
+}
 
 function applyTheme(theme) {
   activeTheme = ["clean", "studio", "paper"].includes(theme) ? theme : "paper";
@@ -343,6 +362,40 @@ function optimizeCurrentHtml(action) {
   if (action === "format") replaceEditorContent(formatHtml(value), "html", "HTML 已格式化");
   if (action === "strip") replaceEditorContent(sanitizeHtml(value, true), "html", "HTML 样式已移除");
   if (action === "markdown") replaceEditorContent(htmlToMarkdown(value), "markdown", "已转换为 Markdown");
+  $("#htmlToolsMenu").removeAttribute("open");
+}
+function stripSelectedHtmlTags() {
+  const editor = $("#noteContent");
+  const currentStart = editor.selectionStart;
+  const currentEnd = editor.selectionEnd;
+  const start = currentStart !== currentEnd ? currentStart : editorSelection.start;
+  const end = currentStart !== currentEnd ? currentEnd : editorSelection.end;
+  if (start === end) {
+    toast("请先在源码中选中要去除标签的文本");
+    editor.focus();
+    return;
+  }
+  const selectedText = editor.value.slice(start, end);
+  if (!/<[a-z!/][\s\S]*>/i.test(selectedText)) {
+    toast("选中文本中没有 HTML 标签");
+    editor.focus();
+    return;
+  }
+  const template = document.createElement("template");
+  template.innerHTML = sanitizeHtml(selectedText, true)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(?:p|div|section|article|header|footer|aside|blockquote|pre|h[1-6]|li|tr)>/gi, "\n");
+  const plainText = (template.content.textContent || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  editor.setRangeText(plainText, start, end, "select");
+  editorSelection = {start, end: start + plainText.length};
+  markNoteDirty();
+  editor.focus();
+  $("#htmlToolsMenu").removeAttribute("open");
+  toast("已去除选中文本中的 HTML 标签");
 }
 function setNoteSaveState(state) {
   const button = $("#saveNoteBtn");
@@ -742,7 +795,7 @@ async function saveCurrent() {
       localStorage.setItem(lastNoteKey, selected.id);
     } else {
       if (selected.isDraft) {
-        selected = {...selected, id: crypto.randomUUID(), title: selected.title || "新笔记", isDraft: false};
+        selected = {...selected, id: createUuid(), title: selected.title || "新笔记", isDraft: false};
         notes.unshift(selected);
       }
       await saveRemote();
@@ -847,6 +900,29 @@ function insertText(text) {
   element.value = element.value.slice(0, start) + text + element.value.slice(end);
   element.focus(); element.selectionStart = element.selectionEnd = start + text.length; markNoteDirty();
 }
+function looksLikeMarkdown(text) {
+  if (!text?.trim()) return false;
+  const patterns = [
+    /^#{1,6}\s+\S/m,
+    /^>\s+\S/m,
+    /^\s*[-*+]\s+\S/m,
+    /^\s*\d+\.\s+\S/m,
+    /^\s*[-*+]\s+\[[ xX]\]\s+\S/m,
+    /^```[\s\S]*```$/m,
+    /!\[[^\]]*]\([^)]+\)/,
+    /\[[^\]]+]\([^)]+\)/,
+    /^\s*\|.+\|\s*$/m,
+    /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/m,
+    /(?:^|[^\w])\*\*[^*\n]+\*\*(?:$|[^\w])/,
+    /(?:^|[^\w])`[^`\n]+`(?:$|[^\w])/
+  ];
+  return patterns.some(pattern => pattern.test(text));
+}
+function insertMarkdownFromClipboard(text) {
+  insertText(text);
+  selected.format = "markdown";
+  toast("已按 Markdown 原文粘贴");
+}
 function insertHtmlFromClipboard(html) {
   const cleaned = formatHtml(html);
   if (!cleaned) {
@@ -932,9 +1008,22 @@ $("#addNoteTop").onclick = createAndOpenNote;
 $("#search").oninput = renderNotes;
 $("#noteTitle").oninput = markNoteDirty;
 $("#noteContent").oninput = markNoteDirty;
+["select", "keyup", "mouseup", "focus"].forEach(eventName =>
+  $("#noteContent").addEventListener(eventName, () => {
+    editorSelection = {
+      start: $("#noteContent").selectionStart,
+      end: $("#noteContent").selectionEnd
+    };
+  }));
 $("#noteContent").onpaste = event => {
   if (matchMedia("(max-width:800px)").matches) return;
+  const text = event.clipboardData?.getData("text/plain") || "";
   const html = event.clipboardData?.getData("text/html");
+  if (looksLikeMarkdown(text)) {
+    event.preventDefault();
+    insertMarkdownFromClipboard(text);
+    return;
+  }
   if (!html) return;
   event.preventDefault();
   insertHtmlFromClipboard(html);
@@ -961,6 +1050,8 @@ $$("[data-insert]").forEach(button => button.onclick = () => insertText(button.d
 $("#cleanHtmlBtn").onclick = () => optimizeCurrentHtml("clean");
 $("#formatHtmlBtn").onclick = () => optimizeCurrentHtml("format");
 $("#stripHtmlStylesBtn").onclick = () => optimizeCurrentHtml("strip");
+$("#stripSelectedTagsBtn").onmousedown = event => event.preventDefault();
+$("#stripSelectedTagsBtn").onclick = stripSelectedHtmlTags;
 $("#htmlToMarkdownBtn").onclick = () => optimizeCurrentHtml("markdown");
 $("#imageInput").onchange = event => {
   const file = event.target.files[0];

@@ -213,16 +213,19 @@ overflow-wrap: anywhere;
 - 对空白笔记尝试使用首个标题作为笔记标题；
 - 自动格式化 HTML 缩进，便于后续编辑。
 
-源码工具栏提供四个桌面端 HTML 优化工具：
+源码工具栏右侧提供紧凑的“HTML 工具”菜单：
 
 | 工具 | 作用 |
 |---|---|
 | 清理 HTML | 删除不安全节点、属性和危险 URL |
 | 格式化 | 整理标签缩进与换行 |
 | 去样式 | 移除 `style`、`class`、`id`、宽高等表现属性 |
+| 去标签 | 仅移除源码中当前选区的 HTML 标签，保留文字、段落和换行 |
 | 转 Markdown | 将常见标题、段落、列表、链接、图片、代码、引用和表格转换为 Markdown |
 
-纯文本剪贴板仍按普通文本粘贴，不触发 HTML 转换。智能粘贴和上述优化工具目前仅用于网页版桌面布局，不改变 Android 与 iOS 行为。
+剪贴板同时包含 `text/plain` 和 `text/html` 时，网页版会先识别 Markdown 标题、列表、代码块、链接、表格、粗体等特征。明显属于 Markdown 的内容按原文粘贴并保持 `markdown` 格式，不会误转为 HTML。普通纯文本仍按文本粘贴。
+
+智能粘贴和上述优化工具目前仅用于网页版桌面布局，不改变 Android 与 iOS 行为。
 
 ### 图片
 
@@ -270,6 +273,25 @@ overflow-wrap: anywhere;
 - 左侧“设置”入口打开完整设置页，可切换界面风格、管理 WebDAV 和分类；
 - 设置页提供“返回笔记”入口；
 - Markdown、HTML、源码切换时，依据视口顶部文本锚点尽量保持同一阅读位置。
+- 编辑器工具栏固定靠近编辑区域底部，HTML 工具使用向上展开的菜单，不挤占正文高度。
+
+### 应用图标与品牌资源
+
+Android 与 Web 共用同一套“纸间”图标视觉：
+
+- Android 主源图：`android/app/src/main/assets/branding/app-icon-master.png`，尺寸为 `1024 × 1024`；
+- Android 各密度启动图标：
+  - `mipmap-mdpi`：`48 × 48`；
+  - `mipmap-hdpi`：`72 × 72`；
+  - `mipmap-xhdpi`：`96 × 96`；
+  - `mipmap-xxhdpi`：`144 × 144`；
+  - `mipmap-xxxhdpi`：`192 × 192`；
+- `AndroidManifest.xml` 通过 `android:icon="@mipmap/ic_launcher"` 使用启动图标；
+- Web 提供 `favicon.ico`、16/32px favicon、180px Apple Touch 图标和 192/512px PWA 图标；
+- `site.webmanifest` 声明应用名称、主题色、独立窗口模式及 PWA 图标；
+- FastAPI 的 `/favicon.ico` 路由直接返回仓库中的 favicon。
+
+`android/app/release/` 属于本地 APK/ZIP 构建输出，不作为图标源文件提交，已加入 `.gitignore`。
 
 ### 分类
 
@@ -1127,6 +1149,10 @@ simple_note_notes_collapsed
 
 其中侧栏折叠、主题和最后打开笔记仅影响当前浏览器界面，不写入 WebDAV，也不影响 Android 或 iOS。
 
+### 浏览器兼容性
+
+网页版首次保存草稿时需要生成 UUID。优先使用 `crypto.randomUUID()`；不支持该 API 的桌面浏览器或非安全 HTTP 环境会自动回退到 `crypto.getRandomValues()` 生成标准 UUID v4，极旧环境再使用兼容降级逻辑。
+
 ---
 
 ## 构建与运行
@@ -1307,6 +1333,7 @@ simple_note/
 │     │  ├─ index.html
 │     │  ├─ app.js
 │     │  ├─ style.css
+│     │  ├─ branding/app-icon-master.png
 │     │  └─ vendor/katex/
 │     ├─ java/com/pyrrhus/simplenote/
 │     │  ├─ MainActivity.java
@@ -1315,12 +1342,25 @@ simple_note/
 │     │  ├─ NoteDbHelper.java
 │     │  └─ WebDavSync.java
 │     └─ res/
+│        ├─ mipmap-mdpi/ic_launcher.png
+│        ├─ mipmap-hdpi/ic_launcher.png
+│        ├─ mipmap-xhdpi/ic_launcher.png
+│        ├─ mipmap-xxhdpi/ic_launcher.png
+│        └─ mipmap-xxxhdpi/ic_launcher.png
 ├─ web/
 │  ├─ main.py
 │  └─ static/
 │     ├─ index.html
 │     ├─ app.js
 │     ├─ style.css
+│     ├─ site.webmanifest
+│     ├─ icons/
+│     │  ├─ favicon.ico
+│     │  ├─ favicon-16x16.png
+│     │  ├─ favicon-32x32.png
+│     │  ├─ apple-touch-icon.png
+│     │  ├─ icon-192.png
+│     │  └─ icon-512.png
 │     └─ vendor/katex/
 ├─ ios-local/                 # 本地开发目录，禁止提交
 ├─ requirements.txt

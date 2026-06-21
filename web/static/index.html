@@ -4,9 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#f6f0e4">
+  <link rel="icon" href="/static/icons/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png">
+  <link rel="manifest" href="/static/site.webmanifest">
   <title>纸间 · 简单笔记</title>
   <link rel="stylesheet" href="/static/vendor/katex/katex.min.css">
-  <link rel="stylesheet" href="/static/style.css?v=20260620-4">
+  <link rel="stylesheet" href="/static/style.css?v=20260621-2">
 </head>
 <body>
   <section id="loginView" class="login-view">
@@ -94,20 +99,26 @@
         <article id="inlinePreview" class="inline-preview hidden"></article>
         <textarea id="noteContent" placeholder="从这里开始记录…"></textarea>
         <div class="format-bar">
-          <button data-insert="**粗体**">B</button>
-          <button data-insert="## 标题">H</button>
-          <button data-insert="- [ ] 待办">☑</button>
-          <button data-insert="> 引用">❝</button>
-          <button data-insert="$E=mc^2$" title="行内公式">Σ</button>
-          <button data-insert="$$\n\\int_{a}^{b} f(x)\\,dx\n$$" title="块级公式">∫</button>
-          <label class="image-button">图片<input id="imageInput" type="file" accept="image/*"></label>
-          <div class="html-tools desktop-only" aria-label="HTML 优化工具">
-            <button id="cleanHtmlBtn" type="button" title="清除脚本、编辑器冗余和不安全属性">清理 HTML</button>
-            <button id="formatHtmlBtn" type="button" title="整理 HTML 缩进和换行">格式化</button>
-            <button id="stripHtmlStylesBtn" type="button" title="移除 style、class 和 id">去样式</button>
-            <button id="htmlToMarkdownBtn" type="button" title="将 HTML 转换为 Markdown">转 Markdown</button>
+          <div class="format-primary-tools" aria-label="插入工具">
+            <button data-insert="**粗体**" title="粗体">B</button>
+            <button data-insert="## 标题" title="标题">H</button>
+            <button data-insert="- [ ] 待办" title="待办">☑</button>
+            <button data-insert="> 引用" title="引用">❝</button>
+            <button data-insert="$E=mc^2$" title="行内公式">Σ</button>
+            <button data-insert="$$\n\\int_{a}^{b} f(x)\\,dx\n$$" title="块级公式">∫</button>
+            <label class="image-button" title="插入图片">图片<input id="imageInput" type="file" accept="image/*"></label>
           </div>
-          <span class="paste-hint">粘贴富文本会自动安全清理</span>
+          <details id="htmlToolsMenu" class="html-tools-menu desktop-only">
+            <summary>HTML 工具</summary>
+            <div class="html-tools-popover" aria-label="HTML 优化工具">
+              <button id="cleanHtmlBtn" type="button" title="清除脚本、编辑器冗余和不安全属性">清理 HTML</button>
+              <button id="formatHtmlBtn" type="button" title="整理 HTML 缩进和换行">格式化</button>
+              <button id="stripHtmlStylesBtn" type="button" title="移除 style、class 和 id">去样式</button>
+              <button id="stripSelectedTagsBtn" type="button" title="移除选中文本中的 HTML 标签，保留文字和换行">去标签</button>
+              <button id="htmlToMarkdownBtn" type="button" title="将 HTML 转换为 Markdown">转 Markdown</button>
+              <small>粘贴富文本时会自动安全清理</small>
+            </div>
+          </details>
         </div>
       </div>
     </section>
@@ -184,6 +195,6 @@
   <div id="toast" role="status"></div>
   <script src="/static/vendor/katex/katex.min.js"></script>
   <script src="/static/vendor/katex/contrib/auto-render.min.js"></script>
-  <script src="/static/app.js?v=20260620-7"></script>
+  <script src="/static/app.js?v=20260621-5"></script>
 </body>
 </html>

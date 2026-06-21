@@ -198,7 +198,7 @@ h2 { margin: 0; font-size: 21px; }
 .segmented button.active { background: var(--surface); color: var(--terra-dark); box-shadow: 0 1px 4px var(--soft-shadow); }
 .text-btn { border: 0; padding: 8px; color: var(--terra); background: transparent; }
 .text-btn.danger { color: var(--danger); }
-.editor-body { max-width: 780px; height: calc(100vh - 66px); margin: auto; padding: 34px 54px 80px; display: flex; flex-direction: column; }
+.editor-body { max-width: 780px; height: calc(100vh - 66px); margin: auto; padding: 34px 54px 22px; display: flex; flex-direction: column; }
 .meta-row { display: flex; align-items: center; justify-content: space-between; color: var(--sage); font: 12px system-ui; }
 .meta-row select { border: 0; background: transparent; color: var(--terra); padding: 5px; }
 .save-note-button { border: 1px solid var(--line); border-radius: 8px; padding: 7px 13px; background: transparent; color: var(--muted); font: 700 12px system-ui; }
@@ -217,14 +217,22 @@ h2 { margin: 0; font-size: 21px; }
 .inline-preview h1,.inline-preview h2,.inline-preview h3 { line-height: 1.35; }
 .inline-preview blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid var(--terra); color: var(--muted); }
 .inline-preview code { padding: 2px 5px; border-radius: 4px; background: var(--paper-deep); }
-.format-bar { min-height: 48px; display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); color: var(--muted); font: 11px system-ui; }
-.format-bar button, .image-button { border: 0; padding: 7px 9px; background: transparent; color: var(--ink); font-weight: 700; }
-.image-button { display: block; cursor: pointer; }
+.format-bar { position: relative; min-height: 48px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); color: var(--muted); font: 11px system-ui; }
+.format-primary-tools { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.format-bar button, .image-button { border: 0; border-radius: 6px; padding: 7px 9px; background: transparent; color: var(--ink); font-weight: 700; }
+.format-bar button:hover, .image-button:hover { color: var(--terra-dark); background: var(--paper-deep); }
+.image-button { display: block; cursor: pointer; white-space: nowrap; }
 .image-button input { display: none; }
-.html-tools { margin-left: auto; display: flex; align-items: center; gap: 2px; padding-left: 8px; border-left: 1px solid var(--line); }
-.html-tools button { border-radius: 6px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; }
-.html-tools button:hover { color: var(--terra-dark); background: var(--paper-deep); }
-.paste-hint { white-space: nowrap; }
+.html-tools-menu { position: relative; margin-left: auto; }
+.html-tools-menu summary { list-style: none; min-width: 92px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--field-bg); cursor: pointer; font-weight: 700; text-align: center; user-select: none; }
+.html-tools-menu summary::-webkit-details-marker { display: none; }
+.html-tools-menu summary::after { content: "⌄"; margin-left: 7px; font-size: 10px; }
+.html-tools-menu[open] summary { color: var(--terra-dark); border-color: var(--terra); background: var(--paper-deep); }
+.html-tools-menu[open] summary::after { content: "⌃"; }
+.html-tools-popover { position: absolute; right: 0; bottom: calc(100% + 9px); z-index: 8; width: 246px; padding: 9px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); box-shadow: var(--shadow); }
+.html-tools-popover button { padding: 9px 10px; color: var(--muted); background: var(--field-bg); font-size: 11px; font-weight: 650; text-align: left; white-space: nowrap; }
+.html-tools-popover button:hover { color: var(--terra-dark); background: var(--paper-deep); }
+.html-tools-popover small { grid-column: 1 / -1; padding: 5px 4px 1px; color: var(--muted); line-height: 1.4; }
 .settings-pane { background: var(--surface); grid-column: 3; overflow: hidden; }
 .settings-scroll { height: calc(100vh - 96px); overflow: auto; padding: 0 8vw 100px; }
 .settings-section { padding: 24px 0; border-top: 1px solid var(--line); display: grid; gap: 14px; }
