@@ -4,7 +4,7 @@
 
 **本地优先、手动保存、通过 WebDAV 跨端同步的轻量笔记应用**
 
-Android · Web · iOS 实现规范 · Markdown · HTML · LaTeX · Base64 图片
+Android · Web · iOS 实现规范 · Markdown · HTML · LaTeX · WebDAV 图片
 
 </div>
 
@@ -38,7 +38,7 @@ Android · Web · iOS 实现规范 · Markdown · HTML · LaTeX · Base64 图片
 - Android 端以本地 SQLite 为主数据源，可完全离线使用。
 - 网页版直接读取和写入用户自己的 WebDAV。
 - iOS 端源码不提交到本仓库，必须依据本文档实现兼容客户端。
-- WebDAV 只保存一个 JSON 文件，不依赖专用服务端、数据库或账号系统。
+- WebDAV 保存一个索引 JSON 和按笔记 ID 拆分的单笔记 JSON，不依赖专用服务端、数据库或账号系统。
 - 笔记以永久 UUID 标识，使用 UTC 更新时间执行 Last Write Wins 合并。
 - 删除采用墓碑记录，避免离线设备把已经删除的笔记重新上传。
 
@@ -230,21 +230,24 @@ overflow-wrap: anywhere;
 ### 图片
 
 - 从系统文件选择器选取图片。
-- 图片转为 Base64 Data URL。
+- 新版桌面/网页版会把图片二进制文件上传到 WebDAV 根目录下的 `images/` 目录。
+- 笔记正文只保存跨端相对路径，不保存 Base64 正文。
 - Markdown 格式插入：
 
 ```markdown
-![文件名](data:image/png;base64,...)
+![文件名](images/2a0d8d9f-8db4-4f3c-8d89-9f16e3e47a44.png)
 ```
 
 - HTML 格式插入：
 
 ```html
-<img src="data:image/png;base64,..." alt="文件名">
+<img src="images/2a0d8d9f-8db4-4f3c-8d89-9f16e3e47a44.png" alt="文件名">
 ```
 
-- 图片数据直接属于笔记正文，会显著增大 WebDAV JSON 文件。
-- iOS 必须兼容读取已有 Base64 Data URL，不得擅自迁移为平台私有文件路径。
+- 旧版 Base64 Data URL 仍必须能读取和显示，避免历史笔记丢图。
+- Android 选择图片时会保存到应用私有图片目录，笔记正文只插入 `images/xxx`，不保留 Base64；同步时再上传到 WebDAV `images/`。
+- Android 同步拉取时会把 `images/` 中被笔记引用的图片下载到应用私有目录，本地预览使用本地文件，笔记正文仍保留 `images/xxx`。
+- iOS 必须采用同样策略：正文保留 `images/xxx`，同步时下载到本地缓存或应用私有目录，渲染时映射为本地可显示 URL。
 
 ### 页内搜索
 
@@ -497,10 +500,11 @@ theme
 
 ### 文件位置
 
-用户设置的是 WebDAV 目录地址。客户端必须：
+用户设置的是 WebDAV 目录地址。客户端必须把该目录作为同步根目录：
 
 1. 去掉目录地址末尾所有 `/`；
-2. 追加 `/simple-note-export.json`。
+2. 主索引固定写入 `/simple-note-export.json`；
+3. 每条笔记固定写入 `/{id}.json`，文件名主体必须等于笔记 `id`。
 
 示例：
 
@@ -508,18 +512,82 @@ theme
 设置地址：
 https://dav.example.com/notes/
 
-实际文件：
+实际主索引：
 https://dav.example.com/notes/simple-note-export.json
+
+实际笔记文件：
+https://dav.example.com/notes/2a0d8d9f-8db4-4f3c-8d89-9f16e3e47a44.json
 ```
 
 如果未来允许用户直接填写完整文件 URL，必须避免重复追加文件名。
+
+### WebDAV 目录文件架构
+
+iOS 必须按以下目录结构读写，不能再把完整笔记数组写回 `simple-note-export.json`：
+
+```text
+{WebDAV 根目录}/
+├─ simple-note-export.json
+│  └─ 主索引：只保存 signature、version、exported_at、notes(id 数组)、categories
+├─ {note-id-1}.json
+│  └─ 单条笔记完整内容
+├─ {note-id-2}.json
+│  └─ 单条笔记完整内容
+├─ images/
+│  ├─ {image-id-1}.png
+│  └─ {image-id-2}.jpg
+└─ ...
+```
+
+示例：
+
+```text
+https://dav.example.com/notes/
+├─ simple-note-export.json
+├─ 2a0d8d9f-8db4-4f3c-8d89-9f16e3e47a44.json
+├─ 7c87950c-6253-42f9-a284-b62ef0fc6b20.json
+├─ images/
+│  ├─ 9a743da5-58a1-4a7f-bf55-40e56c98a99c.png
+│  └─ 83f7a021-c083-476e-9caa-f5c4216a57d2.webp
+└─ legacy-12.json
+```
+
+职责划分：
+
+| 文件 | 是否必须 | 内容 | iOS 处理规则 |
+|---|---|---|---|
+| `simple-note-export.json` | 是 | 主索引，`notes` 只包含 ID | 先读取它，再按 ID 拉取单笔记文件 |
+| `{id}.json` | 是，索引中每个 ID 都应存在 | 单条笔记完整对象 | 文件名主体必须等于笔记 `id` |
+| `images/{image-id}.{ext}` | 否，仅在笔记引用图片时需要 | 图片二进制文件 | 发现正文引用 `images/xxx` 时下载到本地 |
+| 不在索引中的 `{id}.json` | 否 | 过期或孤立笔记文件 | 默认忽略；清理时可 DELETE |
+
+写入顺序必须是：
+
+1. 如需要，先 MKCOL 创建 `images/` 目录；
+2. 先 PUT 笔记正文引用到的 `images/{filename}`；
+3. 再 PUT 所有需要保留的 `{id}.json`；
+4. 再 PUT `simple-note-export.json`；
+5. 最后可选 DELETE 已从新索引移除的旧 `{id}.json`。
+
+读取顺序必须是：
+
+1. GET `simple-note-export.json`；
+2. 校验 `signature` 和 `version`；
+3. 如果 `notes` 是字符串数组，逐个 GET `{id}.json`；
+4. 如果 `notes` 是对象数组，按旧版单文件档案读取，并在下次上传时升级为新结构；
+5. 扫描笔记正文中的 `images/xxx`，把对应图片下载到本地；
+6. UI 只展示 `deleted = false` 的笔记，数据库仍应保存墓碑。
 
 ### HTTP 方法
 
 | 操作 | 方法 | Content-Type |
 |---|---|---|
-| 下载 | `GET` | 接受 JSON |
-| 上传 | `PUT` | `application/json; charset=utf-8` |
+| 下载索引或笔记 | `GET` | 接受 JSON |
+| 上传索引或笔记 | `PUT` | `application/json; charset=utf-8` |
+| 创建图片目录 | `MKCOL` | 无 |
+| 上传图片 | `PUT` | 对应图片 MIME，例如 `image/png` |
+| 下载图片 | `GET` | 对应图片 MIME |
+| 删除过期笔记文件 | `DELETE` | 无 |
 
 认证方式：
 
@@ -534,14 +602,16 @@ HTTP Basic Authentication
 | 连接 | 20 秒 | 20 秒 |
 | 读取/请求 | 30 秒 | 30 秒 |
 
-### 档案根对象
+### 主索引对象
 
 ```json
 {
   "signature": "SIMPLE_NOTE_WEBDAV_V1",
-  "version": 2,
+  "version": 3,
   "exported_at": "2026-06-20T01:30:00.000Z",
-  "notes": [],
+  "notes": [
+    "2a0d8d9f-8db4-4f3c-8d89-9f16e3e47a44"
+  ],
   "categories": ["随笔", "待办", "阅读"]
 }
 ```
@@ -551,10 +621,35 @@ HTTP Basic Authentication
 | 字段 | 类型 | 规则 |
 |---|---|---|
 | `signature` | String | 固定为 `SIMPLE_NOTE_WEBDAV_V1` |
-| `version` | Number | 当前固定为 `2` |
+| `version` | Number | 当前固定为 `3` |
 | `exported_at` | String | 每次上传时生成 UTC ISO 8601 |
-| `notes` | Array | 包含活动笔记和墓碑 |
+| `notes` | Array<String> | 只保存笔记 ID，不保存笔记正文或元数据 |
 | `categories` | Array<String> | 有序、去重、每项最多 4 字 |
+
+### 单笔记对象
+
+每条笔记独立保存为 `{id}.json`。文件内容仍使用完整笔记对象，包含活动笔记和墓碑：
+
+```json
+{
+  "id": "2a0d8d9f-8db4-4f3c-8d89-9f16e3e47a44",
+  "title": "示例笔记",
+  "content": "# Markdown",
+  "format": "markdown",
+  "category": "随笔",
+  "created_at": "2026-06-20T01:20:00.000Z",
+  "updated_at": "2026-06-20T01:30:00.000Z",
+  "deleted": false
+}
+```
+
+上传顺序建议：
+
+1. 先 PUT 每个 `{id}.json`；
+2. 再 PUT `simple-note-export.json`；
+3. 如需要清理已经从索引移除的旧笔记文件，可在索引更新后对旧 `{id}.json` 执行 DELETE。
+
+这样可以避免索引先更新但笔记文件尚未写入时，其他客户端读取到缺失文件。
 
 ### 文件特征码
 
@@ -567,10 +662,12 @@ iOS 读取时：
 兼容的旧版档案最低要求：
 
 - `version` 为 `1` 或 `2`；
-- `notes` 是数组；
+- `notes` 是完整笔记对象数组；
 - `categories` 是数组；
 - 每条笔记至少包含 `id` 和 `updated_at`；
 - `format` 是 `markdown` 或 `html`。
+
+客户端读取到旧版单文件档案后，应在下一次上传时升级为 version 3 的“索引 + 单笔记文件”结构。
 
 ### 404
 
@@ -582,14 +679,14 @@ iOS 读取时：
 
 ### 格式化云端
 
-“格式化云端”只覆盖 WebDAV 文件，不删除本地笔记。
+“格式化云端”只覆盖 WebDAV 主索引，不删除本地笔记。
 
 写入内容：
 
 ```json
 {
   "signature": "SIMPLE_NOTE_WEBDAV_V1",
-  "version": 2,
+  "version": 3,
   "exported_at": "当前 UTC 时间",
   "notes": [],
   "categories": []
@@ -622,17 +719,19 @@ iOS 推荐把“立即同步”实现为真正的双向合并：
 2. GET simple-note-export.json。
 3. 如果 404，使用空远端集合。
 4. 校验 signature、version、notes、categories。
-5. 按 id 建立 localById 和 remoteById。
-6. 取两边 id 的并集。
-7. 每个 id：
+5. 若索引中的 `notes` 是 ID 数组，逐个 GET `{id}.json` 组装远端笔记集合。
+6. 若旧版档案中的 `notes` 是完整对象数组，直接按旧版集合读取。
+7. 按 id 建立 localById 和 remoteById。
+8. 取两边 id 的并集。
+9. 每个 id：
    a. 只存在本地 -> 保留本地。
    b. 只存在远端 -> 保留远端。
    c. 两边都存在 -> 选择 updated_at 较新的对象。
-8. 将合并后的全部对象写入本地数据库，包括 deleted = true 的墓碑。
-9. 分类按当前操作语义处理，见“分类同步”。
-10. 生成新的 exported_at。
-11. PUT 完整档案。
-12. UI 只展示 deleted = false 的笔记。
+10. 将合并后的全部对象写入本地数据库，包括 deleted = true 的墓碑。
+11. 分类按当前操作语义处理，见“分类同步”。
+12. 生成新的 exported_at。
+13. 先 PUT 每条 `{id}.json`，再 PUT 只含 ID 的主索引。
+14. UI 只展示 deleted = false 的笔记。
 ```
 
 Swift 风格伪代码：
@@ -784,7 +883,7 @@ iOS 客户端必须做到：
 | Markdown | Apple `AttributedString(markdown:)` 或成熟 Markdown 库 |
 | HTML | WKWebView 或安全的 AttributedString 转换 |
 | LaTeX | 本地 KaTeX + WKWebView，禁止依赖远端 CDN |
-| 图片 | PhotosPicker，转 Data URL |
+| 图片 | PhotosPicker，上传 WebDAV `images/`，本地缓存显示 |
 
 ### 推荐最低数据结构
 
@@ -811,11 +910,11 @@ struct NoteDTO: Codable, Identifiable {
     }
 }
 
-struct ArchiveDTO: Codable {
+struct WebDavIndexDTO: Codable {
     var signature: String
     var version: Int
     var exportedAt: Date
-    var notes: [NoteDTO]
+    var notes: [String]
     var categories: [String]
 
     enum CodingKeys: String, CodingKey {
@@ -824,6 +923,12 @@ struct ArchiveDTO: Codable {
     }
 }
 ```
+
+说明：
+
+- `WebDavIndexDTO.notes` 是 ID 数组，不是 `[NoteDTO]`；
+- 单条 `{id}.json` 才解码为 `NoteDTO`；
+- 为兼容旧版单文件档案，iOS 读取 `simple-note-export.json` 时需要先检查 `notes` 的元素类型：字符串数组走新结构，对象数组走旧结构。
 
 日期编码器：
 
@@ -864,12 +969,53 @@ WebDAV 密码必须放 Keychain，不应明文放 UserDefaults 或 SwiftData。
 请求目标：
 
 ```swift
-func archiveURL(baseURL: URL) -> URL {
+let webDavIndexFile = "simple-note-export.json"
+let webDavImageDirectory = "images"
+
+func syncRootURL(baseURL: URL) -> URL {
     if baseURL.lastPathComponent == "simple-note-export.json" {
-        return baseURL
+        return baseURL.deletingLastPathComponent()
     }
-    return baseURL.appendingPathComponent("simple-note-export.json")
+    return baseURL
 }
+
+func indexURL(baseURL: URL) -> URL {
+    syncRootURL(baseURL: baseURL).appendingPathComponent(webDavIndexFile)
+}
+
+func noteFileURL(baseURL: URL, id: String) -> URL {
+    syncRootURL(baseURL: baseURL).appendingPathComponent("\(id).json")
+}
+
+func imageFileURL(baseURL: URL, filename: String) -> URL {
+    syncRootURL(baseURL: baseURL)
+        .appendingPathComponent(webDavImageDirectory)
+        .appendingPathComponent(filename)
+}
+```
+
+下载流程：
+
+```text
+1. GET indexURL(baseURL)。
+2. 若 404，视为空远端集合。
+3. 解码主索引。
+4. 若 notes 是 ID 数组，对每个 id GET noteFileURL(baseURL, id)。
+5. 若 notes 是对象数组，按旧版 Archive 解码。
+6. 从每条笔记 content 中提取 images/{filename}。
+7. GET imageFileURL(baseURL, filename)，保存到 iOS 应用私有目录或缓存目录。
+8. 笔记正文仍保存 images/{filename}，渲染时映射到本地文件 URL。
+```
+
+上传流程：
+
+```text
+1. 扫描合并后笔记 content 中的 images/{filename}。
+2. 若本地存在对应图片文件，先 MKCOL images/，再 PUT imageFileURL(baseURL, filename)。
+3. 对合并后的每条笔记 PUT noteFileURL(baseURL, id)。
+4. 构造 WebDavIndexDTO，其中 notes 只放 id。
+5. PUT indexURL(baseURL)。
+6. 可选：DELETE 不再出现在新索引中的旧 noteFileURL。
 ```
 
 Basic Auth：
@@ -973,7 +1119,8 @@ final class EditorViewModel {
 - 不注入不可信原生桥；
 - 渲染前移除危险标签和事件属性；
 - 默认不执行笔记内 JavaScript；
-- Base64 图片可以显示；
+- `images/xxx` 图片渲染时映射为本地文件 URL；
+- 历史 Base64 图片仍可以显示；
 - 普通文本换行使用 `white-space: pre-wrap`。
 
 ### iOS 验收矩阵
@@ -986,7 +1133,7 @@ final class EditorViewModel {
 4. iOS 删除笔记，Android 下载后不再显示且保留墓碑。
 5. Android 新增分类，iOS 下载后可选择。
 6. iOS 将“待办”重命名为“待定”，Android 同步后旧分类不复活。
-7. Android 插入 Base64 图片，iOS 正确显示。
+7. Web/桌面插入图片后，WebDAV 出现 `images/xxx` 文件，iOS 和 Android 同步后能离线显示。
 8. iOS 写入 HTML 换行，Android HTML 预览保留换行。
 9. Android 写入 LaTeX，iOS 离线渲染。
 10. 任一客户端上传后，档案仍保留 `signature`、`version` 和墓碑。
@@ -1288,7 +1435,7 @@ httpx==0.28.1
 - [ ] Markdown 正常显示。
 - [ ] HTML 保留换行。
 - [ ] LaTeX 离线渲染。
-- [ ] Base64 图片正常显示。
+- [ ] `images/xxx` 图片正常显示，历史 Base64 图片仍可显示。
 - [ ] 三种视图切换位置接近。
 - [ ] 切换源码不跳到全文末尾。
 
@@ -1375,7 +1522,7 @@ simple_note/
 1. 不改变 `simple-note-export.json` 文件名。
 2. 不改变 `SIMPLE_NOTE_WEBDAV_V1` 特征码。
 3. 不删除版本 2 档案中的墓碑。
-4. 不用平台私有路径替换 Base64 图片。
+4. 不用平台私有路径替换笔记正文中的 `images/xxx`；渲染层再映射为本地文件 URL。
 5. 不把自动保存重新引入客户端。
 6. 不在点击新建时立即创建正式笔记。
 7. 不让分类旧名称在重命名后通过并集合并复活。

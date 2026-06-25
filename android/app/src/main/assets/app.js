@@ -59,11 +59,30 @@ function logout() {
 }
 function cleanText(value) { return value.replace(/<[^>]+>/g, " ").replace(/[#>*_`\-\[\]]/g, " ").replace(/\s+/g, " ").trim(); }
 function escapeHtml(value) { const d=document.createElement("div"); d.textContent=value; return d.innerHTML; }
+function resolveImageSrc(src) {
+  const value=String(src||"").trim();
+  if(/^images\/[^/?#]+$/i.test(value) && window.LocalNotes?.imageUrl){
+    return window.LocalNotes.imageUrl(value);
+  }
+  return value;
+}
+function rewritePreviewImages(value) {
+  const template=document.createElement("template");
+  template.innerHTML=value;
+  template.content.querySelectorAll("img[src]").forEach(img=>{
+    img.setAttribute("src",resolveImageSrc(img.getAttribute("src")));
+  });
+  return template.innerHTML;
+}
 function renderLocalMarkdown(value) {
   const blocks = [];
+  const images = [];
   let text = value.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
     blocks.push(math);
     return `\nKATEXBLOCK${blocks.length - 1}\n`;
+  }).replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => {
+    images.push({alt, src});
+    return `MARKDOWNIMAGE${images.length - 1}`;
   });
   text = escapeHtml(text)
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
@@ -73,6 +92,10 @@ function renderLocalMarkdown(value) {
     .replace(/^- \[ \] (.+)$/gm, "<div>☐ $1</div>")
     .replace(/^- \[x\] (.+)$/gim, "<div>☑ $1</div>")
     .replace(/^- (.+)$/gm, "<div>• $1</div>")
+    .replace(/MARKDOWNIMAGE(\d+)/g, (_, index) => {
+      const image=images[Number(index)];
+      return `<img src="${escapeHtml(resolveImageSrc(image.src))}" alt="${escapeHtml(image.alt||"图片")}">`;
+    })
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\n{2,}/g, "</p><p>")
@@ -102,9 +125,10 @@ function safeHtml(value) {
   template.content.querySelectorAll("*").forEach(node=>{
     [...node.attributes].forEach(attr=>{
       if(attr.name.toLowerCase().startsWith("on")) node.removeAttribute(attr.name);
+      if(attr.name.toLowerCase()==="src") node.setAttribute(attr.name,resolveImageSrc(attr.value));
     });
   });
-  return template.innerHTML;
+  return rewritePreviewImages(template.innerHTML);
 }
 function setNoteSaveState(state) {
   const button=$("#saveNoteBtn");
@@ -500,7 +524,26 @@ $("#noteSearch").onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();runNoteSea
 $("#noteSearchPrev").onclick=()=>runNoteSearch("prev");
 $("#noteSearchNext").onclick=()=>runNoteSearch("next");
 $$("[data-insert]").forEach(b=>b.onclick=()=>insertText(b.dataset.insert));
-$("#imageInput").onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>insertText(selected.format==="html"?`<img src="${reader.result}" alt="${file.name}">`:`![${file.name}](${reader.result})`);reader.readAsDataURL(file);};
+$("#imageInput").onchange=e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    try{
+      const response=JSON.parse(window.LocalNotes.saveImage(file.name,reader.result));
+      if(!response.ok)throw new Error(response.error||"图片保存失败");
+      const path=response.data.path;
+      insertText(selected.format==="html"?`<img src="${path}" alt="${file.name}">`:`![${file.name}](${path})`);
+      toast("图片已保存到本地，将在同步时上传 WebDAV");
+    }catch(error){
+      toast(error.message||"图片保存失败");
+    }finally{
+      e.target.value="";
+    }
+  };
+  reader.onerror=()=>toast("图片读取失败");
+  reader.readAsDataURL(file);
+};
 $("#deleteBtn").onclick=async()=>{if(!selected||!confirm("确定删除这篇笔记？"))return;if(!selected.isDraft)await api(`/api/notes/${selected.id}`,{method:"DELETE"});notes=notes.filter(n=>n.id!==selected.id);selected=notes[0]||null;if(selected)localStorage.setItem(lastNoteKey,selected.id);else localStorage.removeItem(lastNoteKey);renderAll();if(matchMedia("(max-width:800px)").matches)showTab("list");};
 $("#openDrawer").onclick=()=>$("#sidebar").classList.add("open");$("#closeDrawer").onclick=()=>$("#sidebar").classList.remove("open");
 $("#addCategory").onclick=()=>{settings.categories.push("新分类");renderSettings();renderCategories();};$("#saveSettings").onclick=saveSettings;

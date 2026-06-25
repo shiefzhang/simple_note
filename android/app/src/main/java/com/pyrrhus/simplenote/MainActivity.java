@@ -45,7 +45,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setMediaPlaybackRequiresUserGesture(true);
-        webView.addJavascriptInterface(new LocalBridge(new NoteDbHelper(this)), "LocalNotes");
+        webView.addJavascriptInterface(new LocalBridge(new NoteDbHelper(this), this), "LocalNotes");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onShowFileChooser(
                 WebView view,

@@ -37,7 +37,7 @@ final class NoteDbHelper extends SQLiteOpenHelper {
         Note welcome = new Note();
         welcome.id = UUID.randomUUID().toString();
         welcome.title = "欢迎使用纸间";
-        welcome.content = "# 欢迎使用纸间\n\n每条笔记都有唯一 UUID，并按更新时间与 WebDAV 合并。\n\n- 支持离线使用\n- 支持 Markdown / HTML\n- 图片使用 Base64 保存";
+        welcome.content = "# 欢迎使用纸间\n\n每条笔记都有唯一 UUID，并按更新时间与 WebDAV 合并。\n\n- 支持离线使用\n- 支持 Markdown / HTML\n- WebDAV 图片会同步到本地显示";
         welcome.format = "markdown";
         welcome.category = "随笔";
         welcome.createdAt = welcome.updatedAt = now();

@@ -95,6 +95,30 @@ async function request(path, options = {}) {
   return type.includes("json") ? response.json() : response.text();
 }
 
+async function uploadWebDavImage(file) {
+  if (isLocalApp) {
+    throw new Error("本地版请先保存图片到本地后同步");
+  }
+  const davCredentials = credentials();
+  if (!davCredentials.url) {
+    throw new Error("请先连接 WebDAV");
+  }
+  const response = await fetch("/api/webdav/images", {
+    method: "PUT",
+    body: file,
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "X-File-Name": encodeURIComponent(file.name || "image")
+    }
+  });
+  if (!response.ok) {
+    let message = "图片上传失败";
+    try { message = (await response.json()).detail || message; } catch (_) {}
+    throw new Error(message);
+  }
+  return response.json();
+}
+
 async function localApi(path, options = {}) {
   if (path.includes("/preview")) {
     const note = notes.find(n => path.includes(`/${n.id}/`));
@@ -167,11 +191,30 @@ function escapeHtml(value) {
   div.textContent = value;
   return div.innerHTML;
 }
+function resolveImageSrc(src) {
+  const value = String(src || "").trim();
+  if (/^images\/[^/?#]+$/i.test(value)) {
+    return `/api/webdav/images/${encodeURIComponent(value.slice("images/".length))}`;
+  }
+  return value;
+}
+function rewritePreviewImages(value) {
+  const template = document.createElement("template");
+  template.innerHTML = value;
+  template.content.querySelectorAll("img[src]").forEach(img => {
+    img.setAttribute("src", resolveImageSrc(img.getAttribute("src")));
+  });
+  return template.innerHTML;
+}
 function renderLocalMarkdown(value) {
   const blocks = [];
+  const images = [];
   let text = value.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
     blocks.push(math);
     return `\nKATEXBLOCK${blocks.length - 1}\n`;
+  }).replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_, alt, src) => {
+    images.push({alt, src});
+    return `MARKDOWNIMAGE${images.length - 1}`;
   });
   text = escapeHtml(text)
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
@@ -181,6 +224,10 @@ function renderLocalMarkdown(value) {
     .replace(/^- \[ \] (.+)$/gm, "<div>☐ $1</div>")
     .replace(/^- \[x\] (.+)$/gim, "<div>☑ $1</div>")
     .replace(/^- (.+)$/gm, "<div>• $1</div>")
+    .replace(/MARKDOWNIMAGE(\d+)/g, (_, index) => {
+      const image = images[Number(index)];
+      return `<img src="${escapeHtml(resolveImageSrc(image.src))}" alt="${escapeHtml(image.alt || "图片")}">`;
+    })
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\n{2,}/g, "</p><p>")
@@ -203,7 +250,7 @@ function renderMath(root) {
   });
 }
 function safeHtml(value) {
-  return sanitizeHtml(value);
+  return rewritePreviewImages(sanitizeHtml(value));
 }
 function sanitizeHtml(value, stripStyles = false) {
   const template = document.createElement("template");
@@ -232,7 +279,7 @@ function sanitizeHtml(value, stripStyles = false) {
         return;
       }
       if (name === "src" &&
-          !/^(?:https?:|data:image\/(?:png|gif|jpeg|jpg|webp);base64,|blob:|\/|\.\/|\.\.\/)/i.test(compactValue)) {
+          !/^(?:https?:|data:image\/(?:png|gif|jpeg|jpg|webp);base64,|blob:|\/|\.\/|\.\.\/|images\/)/i.test(compactValue)) {
         node.removeAttribute(attr.name);
         return;
       }
@@ -1053,14 +1100,21 @@ $("#stripHtmlStylesBtn").onclick = () => optimizeCurrentHtml("strip");
 $("#stripSelectedTagsBtn").onmousedown = event => event.preventDefault();
 $("#stripSelectedTagsBtn").onclick = stripSelectedHtmlTags;
 $("#htmlToMarkdownBtn").onclick = () => optimizeCurrentHtml("markdown");
-$("#imageInput").onchange = event => {
+$("#imageInput").onchange = async event => {
   const file = event.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => insertText(selected.format === "html"
-    ? `<img src="${reader.result}" alt="${file.name}">`
-    : `![${file.name}](${reader.result})`);
-  reader.readAsDataURL(file);
+  try {
+    toast("正在上传图片…");
+    const result = await uploadWebDavImage(file);
+    insertText(selected.format === "html"
+      ? `<img src="${result.path}" alt="${escapeHtml(file.name)}">`
+      : `![${file.name}](${result.path})`);
+    toast("图片已保存到 WebDAV");
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    event.target.value = "";
+  }
 };
 $("#deleteBtn").onclick = async () => {
   if (!selected || !confirm("确定删除这篇笔记？")) return;

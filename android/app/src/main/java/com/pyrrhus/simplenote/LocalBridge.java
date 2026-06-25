@@ -5,13 +5,22 @@ import android.webkit.JavascriptInterface;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import android.content.Context;
+import android.util.Base64;
+
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 final class LocalBridge {
     private final NoteDbHelper db;
+    private final File imageDir;
 
-    LocalBridge(NoteDbHelper db) {
+    LocalBridge(NoteDbHelper db, Context context) {
         this.db = db;
+        this.imageDir = new File(context.getFilesDir(), "images");
     }
 
     @JavascriptInterface public String request(String method, String path, String body) {
@@ -96,7 +105,8 @@ final class LocalBridge {
                     db.merge(WebDavSync.download(
                         requiredUrl(),
                         db.getSetting("webdav_username", ""),
-                        db.getSetting("webdav_password", "")
+                        db.getSetting("webdav_password", ""),
+                        imageDir
                     ), false);
                 } catch (Exception error) {
                     // The first sync may not have a remote file yet. Other failures must stop.
@@ -108,7 +118,8 @@ final class LocalBridge {
                     requiredUrl(),
                     db.getSetting("webdav_username", ""),
                     db.getSetting("webdav_password", ""),
-                    db.exportJson()
+                    db.exportJson(),
+                    imageDir
                 );
                 return ok(new JSONObject()
                     .put("ok", true)
@@ -119,7 +130,8 @@ final class LocalBridge {
                 int count = db.merge(WebDavSync.download(
                     requiredUrl(),
                     db.getSetting("webdav_username", ""),
-                    db.getSetting("webdav_password", "")
+                    db.getSetting("webdav_password", ""),
+                    imageDir
                 ));
                 return ok(new JSONObject()
                     .put("ok", true)
@@ -131,7 +143,8 @@ final class LocalBridge {
                     requiredUrl(),
                     db.getSetting("webdav_username", ""),
                     db.getSetting("webdav_password", ""),
-                    db.emptyArchiveJson()
+                    db.emptyArchiveJson(),
+                    imageDir
                 );
                 return ok(new JSONObject()
                     .put("ok", true)
@@ -142,6 +155,55 @@ final class LocalBridge {
         } catch (Exception error) {
             return error(error.getMessage() == null ? "操作失败" : error.getMessage());
         }
+    }
+
+    @JavascriptInterface public String imageUrl(String path) {
+        try {
+            String prefix = "images/";
+            if (path == null || !path.startsWith(prefix)) return path == null ? "" : path;
+            String filename = path.substring(prefix.length());
+            if (filename.contains("/") || filename.contains("\\") || filename.startsWith(".")) return path;
+            File file = new File(imageDir, filename);
+            return file.isFile() ? file.toURI().toString() : path;
+        } catch (Exception ignored) {
+            return path == null ? "" : path;
+        }
+    }
+
+    @JavascriptInterface public String saveImage(String fileName, String dataUrl) {
+        try {
+            if (dataUrl == null || !dataUrl.startsWith("data:image/")) {
+                return error("图片格式无效");
+            }
+            int comma = dataUrl.indexOf(',');
+            if (comma < 0) return error("图片数据无效");
+            String header = dataUrl.substring(0, comma).toLowerCase(Locale.ROOT);
+            String extension = extensionFromHeader(header, fileName);
+            String outputName = UUID.randomUUID().toString() + extension;
+            if (!imageDir.exists() && !imageDir.mkdirs()) return error("无法创建图片目录");
+            byte[] bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT);
+            try (FileOutputStream output = new FileOutputStream(new File(imageDir, outputName))) {
+                output.write(bytes);
+            }
+            return ok(new JSONObject().put("path", "images/" + outputName));
+        } catch (Exception error) {
+            return error(error.getMessage() == null ? "图片保存失败" : error.getMessage());
+        }
+    }
+
+    private static String extensionFromHeader(String header, String fileName) {
+        String lowerName = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        if (lowerName.endsWith(".png")) return ".png";
+        if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return ".jpg";
+        if (lowerName.endsWith(".gif")) return ".gif";
+        if (lowerName.endsWith(".webp")) return ".webp";
+        if (lowerName.endsWith(".svg")) return ".svg";
+        if (header.contains("image/png")) return ".png";
+        if (header.contains("image/jpeg") || header.contains("image/jpg")) return ".jpg";
+        if (header.contains("image/gif")) return ".gif";
+        if (header.contains("image/webp")) return ".webp";
+        if (header.contains("image/svg+xml")) return ".svg";
+        return ".png";
     }
 
     private String requiredUrl() {
