@@ -134,10 +134,26 @@ async function localApi(path, options = {}) {
 function payload() {
   return {
     signature: ARCHIVE_SIGNATURE,
-    version: 2,
+    version: 3,
     exported_at: new Date().toISOString(),
     notes,
     categories: settings.categories
+  };
+}
+function textValue(value) {
+  return value == null ? "" : String(value);
+}
+function normalizeNote(note = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: textValue(note.id || createUuid()),
+    title: textValue(note.title),
+    content: textValue(note.content),
+    format: note.format === "html" ? "html" : "markdown",
+    category: textValue(note.category || "随笔"),
+    created_at: textValue(note.created_at || note.updated_at || now),
+    updated_at: textValue(note.updated_at || note.created_at || now),
+    deleted: Boolean(note.deleted)
   };
 }
 async function loadRemote() {
@@ -146,7 +162,7 @@ async function loadRemote() {
     body: JSON.stringify(credentials())
   });
   remoteExists = result.exists;
-  notes = (result.payload.notes || []).filter(note => !note.deleted);
+  notes = (result.payload.notes || []).map(normalizeNote).filter(note => !note.deleted);
   settings.categories = result.payload.categories?.length
     ? result.payload.categories
     : ["随笔", "待办", "阅读"];
@@ -183,12 +199,12 @@ function logout() {
   fillLoginFromCookies();
 }
 function cleanText(value) {
-  return value.replace(/<[^>]+>/g, " ").replace(/[#>*_`\-\[\]]/g, " ")
+  return textValue(value).replace(/<[^>]+>/g, " ").replace(/[#>*_`\-\[\]]/g, " ")
     .replace(/\s+/g, " ").trim();
 }
 function escapeHtml(value) {
   const div = document.createElement("div");
-  div.textContent = value;
+  div.textContent = textValue(value);
   return div.innerHTML;
 }
 function resolveImageSrc(src) {
@@ -200,13 +216,14 @@ function resolveImageSrc(src) {
 }
 function rewritePreviewImages(value) {
   const template = document.createElement("template");
-  template.innerHTML = value;
+  template.innerHTML = textValue(value);
   template.content.querySelectorAll("img[src]").forEach(img => {
     img.setAttribute("src", resolveImageSrc(img.getAttribute("src")));
   });
   return template.innerHTML;
 }
 function renderLocalMarkdown(value) {
+  value = textValue(value);
   const blocks = [];
   const images = [];
   let text = value.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
@@ -254,7 +271,7 @@ function safeHtml(value) {
 }
 function sanitizeHtml(value, stripStyles = false) {
   const template = document.createElement("template");
-  template.innerHTML = value;
+  template.innerHTML = textValue(value);
   template.content.querySelectorAll(
     "script,style,iframe,object,embed,form,input,button,textarea,select,meta,link,base,svg,math"
   ).forEach(node => node.remove());

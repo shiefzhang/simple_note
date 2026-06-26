@@ -178,6 +178,13 @@ def read_note_files(body: WebDavCredentials, note_ids: list[str]) -> list[dict[s
         if note is None:
             raise ValueError(f"笔记文件不存在：{note_id}{NOTE_FILE_SUFFIX}")
         note["id"] = normalize_note_id(note.get("id", note_id))
+        note["title"] = str(note.get("title") or "")
+        note["content"] = str(note.get("content") or "")
+        note["format"] = "html" if note.get("format") == "html" else "markdown"
+        note["category"] = str(note.get("category") or "随笔")
+        note["created_at"] = str(note.get("created_at") or note.get("updated_at") or utc_now())
+        note["updated_at"] = str(note.get("updated_at") or note.get("created_at") or utc_now())
+        note["deleted"] = bool(note.get("deleted"))
         notes.append(note)
     return notes
 

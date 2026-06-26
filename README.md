@@ -1232,6 +1232,8 @@ FastAPI 接口：
 | GET | `/` | 返回网页 |
 | POST | `/api/webdav/load` | 从 WebDAV 读取档案 |
 | PUT | `/api/webdav/save` | 向 WebDAV 写入档案 |
+| PUT | `/api/webdav/images` | 上传图片到 WebDAV `images/` |
+| GET | `/api/webdav/images/{filename}` | 代理读取 WebDAV 图片 |
 
 请求凭据：
 
@@ -1252,7 +1254,7 @@ FastAPI 接口：
   "password": "password",
   "payload": {
     "signature": "SIMPLE_NOTE_WEBDAV_V1",
-    "version": 2,
+    "version": 3,
     "notes": [],
     "categories": []
   }
@@ -1360,6 +1362,114 @@ fastapi==0.119.0
 uvicorn[standard]==0.37.0
 httpx==0.28.1
 ```
+
+### Web 服务器部署
+
+以下示例以 Ubuntu/Debian 服务器、域名 `note.example.com`、部署目录 `/opt/simple_note` 为准。实际域名、用户和路径按服务器环境替换。
+
+1. 准备运行用户和目录：
+
+```bash
+sudo adduser --system --group --home /opt/simple_note simple-note
+sudo mkdir -p /opt/simple_note
+sudo chown -R simple-note:simple-note /opt/simple_note
+```
+
+2. 拉取代码并安装依赖：
+
+```bash
+sudo -u simple-note git clone https://github.com/shiefzhang/simple_note.git /opt/simple_note
+cd /opt/simple_note
+sudo -u simple-note python3 -m venv .venv
+sudo -u simple-note .venv/bin/python -m pip install --upgrade pip
+sudo -u simple-note .venv/bin/python -m pip install -r requirements.txt
+```
+
+3. 创建 systemd 服务 `/etc/systemd/system/simple-note-web.service`：
+
+```ini
+[Unit]
+Description=Simple Note Web
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=simple-note
+Group=simple-note
+WorkingDirectory=/opt/simple_note
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/simple_note/.venv/bin/uvicorn web.main:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+启动服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now simple-note-web
+sudo systemctl status simple-note-web
+```
+
+4. 配置 Nginx 反向代理：
+
+```nginx
+server {
+    listen 80;
+    server_name note.example.com;
+
+    client_max_body_size 30m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+启用站点后检查并重载：
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+5. 配置 HTTPS。推荐使用 Certbot：
+
+```bash
+sudo certbot --nginx -d note.example.com
+```
+
+正式部署必须使用 HTTPS。网页版会把 WebDAV 地址、用户名和密码保存到浏览器 Cookie；明文 HTTP 会暴露凭据。
+
+6. 更新发布：
+
+```bash
+cd /opt/simple_note
+sudo -u simple-note git pull --ff-only
+sudo -u simple-note .venv/bin/python -m pip install -r requirements.txt
+sudo systemctl restart simple-note-web
+```
+
+7. 快速排查：
+
+```bash
+sudo journalctl -u simple-note-web -f
+curl -I http://127.0.0.1:8000/
+```
+
+注意事项：
+
+- 公开部署的 FastAPI 会拒绝代理访问本机、内网和保留地址 WebDAV，这是 SSRF 防护；如果 WebDAV 在局域网内，应使用 Android 原生客户端或部署在可信内网。
+- WebDAV 图片上传会使用 `MKCOL images` 自动创建图片目录；如果 WebDAV 服务禁止 `MKCOL`，需要手动创建 `images/` 目录并确保有写权限。
+- 如需上传较大图片，调整 Nginx `client_max_body_size` 和 WebDAV 服务端上传限制。
 
 ---
 
