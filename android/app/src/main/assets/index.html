@@ -53,14 +53,14 @@
           <button id="noteSearchPrev" type="button" aria-label="上一个匹配">↑</button>
           <button id="noteSearchNext" type="button" aria-label="下一个匹配">↓</button>
         </div>
-        <div class="editor-actions">
-          <button id="deleteBtn" class="text-btn danger">删除</button>
-        </div>
       </header>
       <div class="editor-body">
         <div class="meta-row">
           <select id="categorySelect" aria-label="分类"></select>
-          <button id="saveNoteBtn" class="save-note-button" type="button" disabled>保存笔记</button>
+          <div class="note-actions">
+            <button id="deleteBtn" class="text-btn danger" type="button">删除</button>
+            <button id="saveNoteBtn" class="save-note-button" type="button" disabled>保存笔记</button>
+          </div>
         </div>
         <input id="noteTitle" class="title-input" placeholder="无标题">
         <article id="searchPreview" class="search-preview hidden"></article>

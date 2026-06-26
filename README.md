@@ -1203,12 +1203,12 @@ window.LocalNotes.request(method, path, body)
 | Target SDK | 35 |
 | Compile SDK | 35 |
 | Java | 17 |
-| Version | 1.0.0 |
+| Version | 1.1.0 |
 
 Debug APK 文件名：
 
 ```text
-SimpleNote-debug-1.0.0-dev.apk
+SimpleNote-debug-1.1.0-dev.apk
 ```
 
 ---
@@ -1326,7 +1326,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 输出：
 
 ```text
-android/app/build/outputs/apk/debug/SimpleNote-debug-1.0.0-dev.apk
+android/app/build/outputs/apk/debug/SimpleNote-debug-1.1.0-dev.apk
 ```
 
 Release：

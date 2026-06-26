@@ -162,7 +162,11 @@ async function loadRemote() {
     body: JSON.stringify(credentials())
   });
   remoteExists = result.exists;
-  notes = (result.payload.notes || []).map(normalizeNote).filter(note => !note.deleted);
+  const remoteNotes = result.payload.notes || [];
+  if (remoteNotes.some(note => typeof note !== "object" || note === null || Array.isArray(note))) {
+    throw new Error("服务器后端未更新或未重启：WebDAV 索引只返回了笔记 ID，无法读取正文。请在服务器上 git pull 后重启 simple-note-web。");
+  }
+  notes = remoteNotes.map(normalizeNote).filter(note => !note.deleted);
   settings.categories = result.payload.categories?.length
     ? result.payload.categories
     : ["随笔", "待办", "阅读"];
