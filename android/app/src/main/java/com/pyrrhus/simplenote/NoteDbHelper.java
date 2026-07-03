@@ -23,7 +23,7 @@ final class NoteDbHelper extends SQLiteOpenHelper {
     static final String ARCHIVE_SIGNATURE = "SIMPLE_NOTE_WEBDAV_V1";
 
     NoteDbHelper(Context context) {
-        super(context, DB_NAME, null, 2);
+        super(context, DB_NAME, null, 3);
     }
 
     @Override public void onCreate(SQLiteDatabase db) {
@@ -69,6 +69,13 @@ final class NoteDbHelper extends SQLiteOpenHelper {
                 }
             }
             db.execSQL("DROP TABLE notes_legacy");
+        }
+        if (oldVersion < 3) {
+            db.delete(
+                "notes",
+                "TRIM(content)='' AND (TRIM(title)='' OR TRIM(title)=?)",
+                new String[]{"\u65b0\u7b14\u8bb0"}
+            );
         }
     }
 

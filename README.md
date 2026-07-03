@@ -155,16 +155,27 @@ html
 
 ### Markdown
 
-当前轻量渲染支持：
+Web 与 Android 使用随应用内置的 Marked `18.0.5`，按 CommonMark + GitHub Flavored Markdown（GFM）渲染，不依赖 CDN。跨端最低兼容范围为：
 
-- 一级、二级、三级标题；
-- 粗体；
-- 行内代码；
-- 引用；
-- 无序列表；
-- 待办项；
-- 普通换行；
-- LaTeX 数学公式。
+- ATX 与 Setext 标题；
+- 粗体、斜体、删除线和行内代码；
+- 有序列表、无序列表及嵌套列表；
+- 引用、分隔线、链接、自动链接和图片；
+- 围栏代码块与语言标识；
+- GFM 表格，包括左对齐、居中和右对齐；
+- GFM 任务列表；
+- 行内及块级 LaTeX 数学公式。
+
+Markdown 解析配置统一为：
+
+```javascript
+marked.parse(markdown, {
+  gfm: true,
+  breaks: false
+})
+```
+
+`breaks: false` 表示普通单换行遵循 CommonMark 的软换行规则；需要强制换行时，在行尾使用两个空格或 `<br>`。客户端不得自行把所有单换行转换为 `<br>`。
 
 行内公式：
 
@@ -180,7 +191,9 @@ $$
 $$
 ```
 
-Android 和 Web 均内置 KaTeX 静态资源，公式渲染不依赖 CDN。
+Android 和 Web 均内置 KaTeX 静态资源，公式渲染不依赖 CDN。渲染块级公式时，先用占位符保护 `$$...$$` 内容，Markdown 解析完成后恢复公式，再交给 KaTeX，避免公式中的 `_`、`*` 等字符被 Markdown 误解析。
+
+Markdown 渲染后的 HTML 仍是不可信内容，必须经过与 HTML 预览相同的安全清理；清理完成后，再把正文中的 `images/xxx` 映射为当前平台的本地图片 URL。任务列表只允许 `type="checkbox"` 的禁用复选框，不允许其他表单控件。
 
 ### HTML
 
@@ -880,10 +893,48 @@ iOS 客户端必须做到：
 | 网络 | URLSession |
 | 凭据 | Keychain |
 | 偏好设置 | UserDefaults |
-| Markdown | Apple `AttributedString(markdown:)` 或成熟 Markdown 库 |
+| Markdown | 支持 CommonMark + GFM 表格、任务列表和删除线的成熟 Markdown 库；仅使用 `AttributedString(markdown:)` 不满足本项目兼容要求 |
 | HTML | WKWebView 或安全的 AttributedString 转换 |
 | LaTeX | 本地 KaTeX + WKWebView，禁止依赖远端 CDN |
 | 图片 | PhotosPicker，上传 WebDAV `images/`，本地缓存显示 |
+
+### iOS Markdown / GFM 渲染契约
+
+iOS 必须与 Web、Android 使用相同的 CommonMark + GFM 语义。实现可以选择支持 GFM 的原生库，或在本地 WKWebView 中内置 Markdown 解析脚本；解析器和 KaTeX 必须随 App 打包，不能依赖远端 CDN。
+
+iOS 至少需要正确渲染以下测试内容：
+
+~~~markdown
+# 标题
+
+| 左对齐 | 居中 | 右对齐 |
+|:---|:---:|---:|
+| A | B | C |
+
+- [x] 已完成
+- [ ] 未完成
+  - 嵌套列表
+
+~~删除线~~
+
+```swift
+let ready = true
+```
+~~~
+
+推荐渲染顺序：
+
+1. 读取笔记的原始 `content`，不要改写或标准化后再保存。
+2. 用不可与正文冲突的占位符保护 `$$...$$` 块级公式。
+3. 以 GFM 开启、硬换行关闭的配置解析 Markdown。
+4. 恢复公式原文，并对生成的 HTML 做安全清理。
+5. 将 `images/xxx` 映射为应用私有目录或缓存目录中的本地文件 URL。
+6. 使用本地 KaTeX 渲染 `$...$`、`\(...\)`、`$$...$$` 和 `\[...\]`。
+7. 将最终 HTML 放入禁用任意导航和笔记脚本执行的 WKWebView，或转换为等价的原生富文本视图。
+
+安全清理至少要移除 `script`、`style`、`iframe`、`object`、`embed`、`form`、`button`、`textarea`、`select`、危险 `input`、事件属性以及危险 URL 协议。允许表格的 `align`、`colspan`、`rowspan`，并仅允许禁用的任务复选框。Markdown 中的原始 HTML 同样必须经过此流程。
+
+iOS 写回 WebDAV 的必须始终是用户输入的 Markdown 原文，而不是渲染生成的 HTML。切换预览不会把笔记的 `format` 从 `markdown` 改成 `html`。
 
 ### 推荐最低数据结构
 
@@ -1137,6 +1188,9 @@ final class EditorViewModel {
 8. iOS 写入 HTML 换行，Android HTML 预览保留换行。
 9. Android 写入 LaTeX，iOS 离线渲染。
 10. 任一客户端上传后，档案仍保留 `signature`、`version` 和墓碑。
+11. Android 或 Web 写入 GFM 表格，iOS 显示为真正的表格，并保留三种列对齐方式。
+12. iOS 写入嵌套列表、任务列表、删除线和围栏代码块，Android 与 Web 正确渲染且源码保持不变。
+13. Markdown 中包含 `<script>`、事件属性或 `javascript:` 链接时，三个客户端均不得执行或保留危险行为。
 
 ---
 
@@ -1159,6 +1213,8 @@ window.LocalNotes.request(method, path, body)
 ```
 
 调用原生 `LocalBridge`。
+
+Markdown 预览由 `assets/vendor/marked/marked.umd.js` 提供 GFM 解析，`assets/vendor/katex/` 提供离线公式渲染。解析后的 HTML 经过 `safeHtml()` 清理，`images/xxx` 再通过 `LocalNotes.imageUrl()` 映射到 Android 私有图片文件。若 Marked 资源意外加载失败，应用会降级到旧轻量解析器，避免预览完全空白；正常发布包必须包含 Marked 静态文件。
 
 本地桥接接口：
 

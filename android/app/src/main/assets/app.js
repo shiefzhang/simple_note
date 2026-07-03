@@ -75,6 +75,19 @@ function rewritePreviewImages(value) {
   return template.innerHTML;
 }
 function renderLocalMarkdown(value) {
+  if (!window.marked?.parse) return renderLegacyMarkdown(value);
+  const blocks=[];
+  const markdown=String(value||"").replace(/\$\$([\s\S]+?)\$\$/g,(_,math)=>{
+    blocks.push(math);
+    return `\n\nKATEXBLOCK${blocks.length-1}\n\n`;
+  });
+  let html=window.marked.parse(markdown,{gfm:true,breaks:false});
+  blocks.forEach((math,index)=>{
+    html=html.replace(`KATEXBLOCK${index}`,`$$${escapeHtml(math)}$$`);
+  });
+  return `<div class="markdown-preview">${safeHtml(html)}</div>`;
+}
+function renderLegacyMarkdown(value) {
   const blocks = [];
   const images = [];
   let text = value.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
@@ -120,12 +133,38 @@ function renderMath(root) {
 }
 function safeHtml(value) {
   const template=document.createElement("template");
-  template.innerHTML=value;
-  template.content.querySelectorAll("script,iframe,object,embed").forEach(node=>node.remove());
+  template.innerHTML=String(value||"");
+  template.content.querySelectorAll(
+    "script,style,iframe,object,embed,form,button,textarea,select,meta,link,base,svg,math"
+  ).forEach(node=>node.remove());
+  template.content.querySelectorAll("input:not([type='checkbox'])").forEach(node=>node.remove());
+  const allowedAttributes=new Set([
+    "href","src","alt","title","colspan","rowspan","scope","target","rel",
+    "style","class","id","width","height","datetime","align","disabled","checked","type"
+  ]);
   template.content.querySelectorAll("*").forEach(node=>{
     [...node.attributes].forEach(attr=>{
-      if(attr.name.toLowerCase().startsWith("on")) node.removeAttribute(attr.name);
-      if(attr.name.toLowerCase()==="src") node.setAttribute(attr.name,resolveImageSrc(attr.value));
+      const name=attr.name.toLowerCase();
+      const value=attr.value.trim();
+      if(!allowedAttributes.has(name)||name.startsWith("on")||name.startsWith("data-")||name.startsWith("aria-")){
+        node.removeAttribute(attr.name);
+        return;
+      }
+      const compact=value.replace(/[\u0000-\u0020]/g,"");
+      if(name==="href"&&!/^(?:https?:|mailto:|tel:|#|\/|\.\/|\.\.\/)/i.test(compact)){
+        node.removeAttribute(attr.name);
+      }else if(name==="src"){
+        const resolved=resolveImageSrc(value);
+        if(/^(?:https?:|data:image\/(?:png|gif|jpeg|jpg|webp);base64,|content:|file:|\/|\.\/|\.\.\/)/i.test(resolved)) node.setAttribute(attr.name,resolved);
+        else node.removeAttribute(attr.name);
+      }else if(name==="target"&&value==="_blank"){
+        node.setAttribute("rel","noopener noreferrer");
+      }else if(name==="style"){
+        const allowed=value.split(";").map(rule=>rule.trim()).filter(rule=>
+          /^(?:text-align|font-weight|font-style|text-decoration|vertical-align|white-space)\s*:/i.test(rule));
+        if(allowed.length)node.setAttribute("style",allowed.join("; "));
+        else node.removeAttribute("style");
+      }
     });
   });
   return rewritePreviewImages(template.innerHTML);
@@ -399,6 +438,12 @@ async function createNote() {
 }
 async function saveCurrent() {
   if (!selected || $("#saveNoteBtn").disabled) return;
+  const title=$("#noteTitle").value.trim();
+  const content=$("#noteContent").value.trim();
+  if(selected.isDraft&&!title&&!content){
+    toast("空白笔记不会保存");
+    return;
+  }
   setNoteSaveState("saving");
   selected.title=$("#noteTitle").value;
   selected.content=$("#noteContent").value;
@@ -455,11 +500,51 @@ async function persistSettings(showToast = true) {
   } catch(e){toast(e.message);return false;}
 }
 async function saveSettings(){await persistSettings(true);}
-async function sync(direction) {
-  const status=$("#settingsSyncStatus");status.textContent="正在同步…";
-  if(!await persistSettings(false)){status.textContent="配置保存失败";return;}
+let syncOperationBusy=false;
+let syncProgressTimer=0;
+const syncOperationButtons=()=>["#syncNowBtn","#pullBtn","#pushBtn","#formatDavBtn"].map($);
+function updateSyncProgress(percent,label,state=""){
+  const progress=$("#syncProgress");
+  clearTimeout(syncProgressTimer);
+  progress.classList.remove("hidden","success","error");
+  if(state)progress.classList.add(state);
+  progress.setAttribute("aria-valuenow",String(percent));
+  $("#syncProgressBar").style.width=`${percent}%`;
+  $("#syncProgressLabel").textContent=label;
+  $("#syncProgressValue").textContent=`${percent}%`;
+}
+function paintSyncProgress(){
+  return new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+}
+function beginSyncProgress(label){
+  if(syncOperationBusy){toast("已有 WebDAV 操作正在进行");return false;}
+  syncOperationBusy=true;
+  syncOperationButtons().forEach(button=>button.disabled=true);
+  updateSyncProgress(8,label);
+  return true;
+}
+function finishSyncProgress(success,label){
+  updateSyncProgress(100,label,success?"success":"error");
+  syncOperationBusy=false;
+  syncOperationButtons().forEach(button=>button.disabled=false);
+  syncProgressTimer=setTimeout(()=>$("#syncProgress").classList.add("hidden"),1800);
+}
+async function sync(direction,label) {
+  if(!beginSyncProgress(`正在准备${label}`))return;
+  const status=$("#settingsSyncStatus");status.textContent=`正在${label}…`;
+  updateSyncProgress(18,"正在保存同步配置");
+  await paintSyncProgress();
+  if(!await persistSettings(false)){
+    status.textContent="配置保存失败";
+    finishSyncProgress(false,"配置保存失败");
+    return;
+  }
   try{
+    updateSyncProgress(38,`正在连接 WebDAV 并${label}`);
+    await paintSyncProgress();
     const result=await api(`/api/sync/${direction}`,{method:"POST"});
+    updateSyncProgress(78,"正在刷新本地笔记");
+    await paintSyncProgress();
     const text=`${new Date().toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})} · 已处理 ${result.count} 条`;
     localStorage.setItem("simple_note_last_sync",text);status.textContent=text;
     toast("WebDAV 同步完成");
@@ -468,7 +553,8 @@ async function sync(direction) {
     persistedCategories=[...settings.categories];
     selected=notes.find(n=>n.id===localStorage.getItem(lastNoteKey))||notes[0]||null;
     renderCategories();renderNotes();
-  }catch(e){status.textContent="同步失败";toast(e.message);}
+    finishSyncProgress(true,`${label}完成`);
+  }catch(e){status.textContent="同步失败";finishSyncProgress(false,`${label}失败`);toast(e.message);}
 }
 async function formatWebDav() {
   const davUrl=($("#davUrl").value||settings.webdav_url||"").trim()||"未配置 WebDAV 地址";
@@ -476,15 +562,23 @@ async function formatWebDav() {
   if(!first)return;
   const second=confirm(`请再次确认 WebDAV 地址：\n${davUrl}\n\n云端数据清除后无法从 WebDAV 恢复。\n\n确定格式化云端吗？`);
   if(!second)return;
+  if(!beginSyncProgress("正在准备格式化云端"))return;
   const status=$("#settingsSyncStatus");status.textContent="正在格式化云端…";
-  if(!await persistSettings(false)){status.textContent="配置保存失败";return;}
+  updateSyncProgress(18,"正在保存 WebDAV 配置");
+  await paintSyncProgress();
+  if(!await persistSettings(false)){status.textContent="配置保存失败";finishSyncProgress(false,"配置保存失败");return;}
   try{
+    updateSyncProgress(42,"正在清理云端数据");
+    await paintSyncProgress();
     await api("/api/sync/format",{method:"POST"});
+    updateSyncProgress(88,"正在写入新的云端索引");
+    await paintSyncProgress();
     const text=`${new Date().toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit"})} · 云端已格式化`;
     localStorage.setItem("simple_note_last_sync",text);
     status.textContent=text;
     toast("WebDAV 云端数据已清空并写入特征码");
-  }catch(e){status.textContent="格式化失败";toast(e.message);}
+    finishSyncProgress(true,"云端格式化完成");
+  }catch(e){status.textContent="格式化失败";finishSyncProgress(false,"云端格式化失败");toast(e.message);}
 }
 function insertText(text) {
   const el=$("#noteContent"), start=el.selectionStart, end=el.selectionEnd;
@@ -555,8 +649,8 @@ $("#toggleDavPassword").onclick=()=>{
   button.setAttribute("aria-label",show?"隐藏密码":"显示密码");
   button.setAttribute("aria-pressed",String(show));
 };
-$("#syncNowBtn").onclick=()=>sync("push");
-$("#pushBtn").onclick=()=>sync("push");$("#pullBtn").onclick=()=>sync("pull");
+$("#syncNowBtn").onclick=()=>sync("push","立即同步");
+$("#pushBtn").onclick=()=>sync("push","上传合并");$("#pullBtn").onclick=()=>sync("pull","下载合并");
 $("#formatDavBtn").onclick=formatWebDav;
 $$("[data-tab]").forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
 const keyboardViewport=window.visualViewport;

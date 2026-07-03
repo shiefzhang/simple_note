@@ -166,11 +166,15 @@ async function loadRemote() {
   if (remoteNotes.some(note => typeof note !== "object" || note === null || Array.isArray(note))) {
     throw new Error("服务器后端未更新或未重启：WebDAV 索引只返回了笔记 ID，无法读取正文。请在服务器上 git pull 后重启 simple-note-web。");
   }
-  notes = remoteNotes.map(normalizeNote).filter(note => !note.deleted);
+  const normalizedNotes = remoteNotes.map(normalizeNote);
+  const blankNotes = normalizedNotes.filter(note =>
+    !note.deleted && !note.content.trim() &&
+    (!note.title.trim() || note.title.trim() === "\u65b0\u7b14\u8bb0"));
+  notes = normalizedNotes.filter(note => !note.deleted && !blankNotes.includes(note));
   settings.categories = result.payload.categories?.length
     ? result.payload.categories
     : ["随笔", "待办", "阅读"];
-  if (result.legacy) {
+  if (result.legacy || blankNotes.length) {
     await saveRemote();
     toast("旧版数据已升级并加入特征码");
   }
@@ -226,10 +230,41 @@ function rewritePreviewImages(value) {
   });
   return template.innerHTML;
 }
+function renderMarkdownTable(lines) {
+  const splitRow = line => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
+  const headers = splitRow(lines[0]);
+  const alignments = splitRow(lines[1]).map(cell => {
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":");
+    return left && right ? "center" : right ? "right" : "left";
+  });
+  const renderCell = (tag, cell, index) =>
+    `<${tag} style="text-align:${alignments[index] || "left"}">${escapeHtml(cell)}</${tag}>`;
+  const head = `<thead><tr>${headers.map((cell, index) => renderCell("th", cell, index)).join("")}</tr></thead>`;
+  const bodyRows = lines.slice(2).map(line => {
+    const cells = splitRow(line);
+    return `<tr>${headers.map((_, index) => renderCell("td", cells[index] || "", index)).join("")}</tr>`;
+  }).join("");
+  return `<div class="markdown-table-wrap"><table>${head}<tbody>${bodyRows}</tbody></table></div>`;
+}
 function renderLocalMarkdown(value) {
+  if (!window.marked?.parse) return renderLegacyMarkdown(value);
+  const blocks = [];
+  const markdown = textValue(value).replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
+    blocks.push(math);
+    return `\n\nKATEXBLOCK${blocks.length - 1}\n\n`;
+  });
+  let html = window.marked.parse(markdown, {gfm: true, breaks: false});
+  blocks.forEach((math, index) => {
+    html = html.replace(`KATEXBLOCK${index}`, `$$${escapeHtml(math)}$$`);
+  });
+  return `<div class="markdown-preview">${rewritePreviewImages(sanitizeHtml(html))}</div>`;
+}
+function renderLegacyMarkdown(value) {
   value = textValue(value);
   const blocks = [];
   const images = [];
+  const tables = [];
   let text = value.replace(/\$\$([\s\S]+?)\$\$/g, (_, math) => {
     blocks.push(math);
     return `\nKATEXBLOCK${blocks.length - 1}\n`;
@@ -237,6 +272,20 @@ function renderLocalMarkdown(value) {
     images.push({alt, src});
     return `MARKDOWNIMAGE${images.length - 1}`;
   });
+  const lines = text.split("\n");
+  const tableSeparator = /^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/;
+  for (let index = 0; index < lines.length - 1;) {
+    if (lines[index].includes("|") && tableSeparator.test(lines[index + 1])) {
+      const tableLines = [lines[index], lines[index + 1]];
+      let next = index + 2;
+      while (next < lines.length && lines[next].trim() && lines[next].includes("|")) tableLines.push(lines[next++]);
+      tables.push(renderMarkdownTable(tableLines));
+      lines.splice(index, next - index, `MARKDOWNTABLE${tables.length - 1}`);
+    } else {
+      index++;
+    }
+  }
+  text = lines.join("\n");
   text = escapeHtml(text)
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
@@ -249,6 +298,7 @@ function renderLocalMarkdown(value) {
       const image = images[Number(index)];
       return `<img src="${escapeHtml(resolveImageSrc(image.src))}" alt="${escapeHtml(image.alt || "图片")}">`;
     })
+    .replace(/MARKDOWNTABLE(\d+)/g, (_, index) => tables[Number(index)])
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\n{2,}/g, "</p><p>")
@@ -277,11 +327,12 @@ function sanitizeHtml(value, stripStyles = false) {
   const template = document.createElement("template");
   template.innerHTML = textValue(value);
   template.content.querySelectorAll(
-    "script,style,iframe,object,embed,form,input,button,textarea,select,meta,link,base,svg,math"
+    "script,style,iframe,object,embed,form,button,textarea,select,meta,link,base,svg,math"
   ).forEach(node => node.remove());
+  template.content.querySelectorAll("input:not([type='checkbox'])").forEach(node => node.remove());
   const allowedAttributes = new Set([
     "href", "src", "alt", "title", "colspan", "rowspan", "scope", "target", "rel",
-    "style", "class", "id", "width", "height", "datetime"
+    "style", "class", "id", "width", "height", "datetime", "align", "disabled", "checked", "type"
   ]);
   template.content.querySelectorAll("*").forEach(node => {
     [...node.attributes].forEach(attr => {
@@ -844,6 +895,12 @@ async function createNote() {
 }
 async function saveCurrent() {
   if (!selected || $("#saveNoteBtn").disabled) return;
+  const title = $("#noteTitle").value.trim();
+  const content = $("#noteContent").value.trim();
+  if (selected.isDraft && !title && !content) {
+    toast("\u7a7a\u767d\u7b14\u8bb0\u4e0d\u4f1a\u4fdd\u5b58");
+    return;
+  }
   setNoteSaveState("saving");
   selected.title = $("#noteTitle").value;
   selected.content = $("#noteContent").value;

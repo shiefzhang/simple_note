@@ -116,6 +116,14 @@ def normalize_note_id(value: Any) -> str:
     return note_id
 
 
+def is_blank_note(note: Any) -> bool:
+    if not isinstance(note, dict) or note.get("deleted"):
+        return False
+    title = str(note.get("title") or "").strip()
+    content = str(note.get("content") or "").strip()
+    return not content and title in {"", "\u65b0\u7b14\u8bb0"}
+
+
 def normalize_image_filename(value: Any) -> str:
     filename = str(value or "").strip()
     if not filename:
@@ -282,6 +290,11 @@ def load_webdav(body: WebDavCredentials) -> dict[str, Any]:
         else:
             legacy = True
 
+        original_count = len(payload["notes"])
+        payload["notes"] = [note for note in payload["notes"] if not is_blank_note(note)]
+        if len(payload["notes"]) != original_count:
+            legacy = True
+
         payload.setdefault("version", 3 if split_files else 2)
         payload.setdefault("categories", ["随笔", "待办", "阅读"])
         payload["signature"] = ARCHIVE_SIGNATURE
@@ -317,7 +330,11 @@ def save_webdav(body: WebDavSaveBody) -> dict[str, Any]:
         except (httpx.HTTPStatusError, ValueError, json.JSONDecodeError):
             old_ids = set()
 
-        notes = [note for note in payload["notes"] if isinstance(note, dict)]
+        notes = [
+            note for note in payload["notes"]
+            if isinstance(note, dict) and not is_blank_note(note)
+        ]
+        payload["notes"] = notes
         new_ids = {normalize_note_id(note.get("id")) for note in notes}
         for note in notes:
             note_id = normalize_note_id(note.get("id"))

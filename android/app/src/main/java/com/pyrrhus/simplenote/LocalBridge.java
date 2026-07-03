@@ -42,6 +42,11 @@ final class LocalBridge {
             }
             if ("POST".equals(method) && "/api/notes".equals(path)) {
                 JSONObject input = new JSONObject(body);
+                String title = input.optString("title", "").trim();
+                String content = input.optString("content", "").trim();
+                if (content.isEmpty() && (title.isEmpty() || "\u65b0\u7b14\u8bb0".equals(title))) {
+                    return error("\u7a7a\u767d\u7b14\u8bb0\u4e0d\u4f1a\u4fdd\u5b58");
+                }
                 Note note = Note.fromJson(input);
                 note.id = java.util.UUID.randomUUID().toString();
                 note.createdAt = note.updatedAt = NoteDbHelper.now();
