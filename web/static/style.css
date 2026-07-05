@@ -141,6 +141,7 @@ label input { padding: 12px 13px; }
 .categories button { border: 0; border-radius: 7px; padding: 10px 12px; text-align: left; color: var(--muted); background: transparent; }
 .categories button.active { color: var(--terra-dark); background: var(--active-bg); font-weight: 700; }
 .side-footer { margin-top: auto; padding: 12px; color: var(--muted); font: 12px system-ui; }
+.app-version { margin-top: 10px; padding-top: 9px; border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent); color: color-mix(in srgb, var(--muted) 78%, transparent); font: 500 11px/1 system-ui; letter-spacing: .04em; }
 .settings-entry {
   width: 100%;
   margin-bottom: 12px;

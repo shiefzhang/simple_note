@@ -230,6 +230,18 @@ function rewritePreviewImages(value) {
   });
   return template.innerHTML;
 }
+function wrapMarkdownTables(value) {
+  const template = document.createElement("template");
+  template.innerHTML = textValue(value);
+  template.content.querySelectorAll("table").forEach(table => {
+    if (table.parentElement?.classList.contains("markdown-table-wrap")) return;
+    const wrapper = document.createElement("div");
+    wrapper.className = "markdown-table-wrap";
+    table.replaceWith(wrapper);
+    wrapper.appendChild(table);
+  });
+  return template.innerHTML;
+}
 function renderMarkdownTable(lines) {
   const splitRow = line => line.trim().replace(/^\||\|$/g, "").split("|").map(cell => cell.trim());
   const headers = splitRow(lines[0]);
@@ -258,7 +270,7 @@ function renderLocalMarkdown(value) {
   blocks.forEach((math, index) => {
     html = html.replace(`KATEXBLOCK${index}`, `$$${escapeHtml(math)}$$`);
   });
-  return `<div class="markdown-preview">${rewritePreviewImages(sanitizeHtml(html))}</div>`;
+  return `<div class="markdown-preview">${wrapMarkdownTables(rewritePreviewImages(sanitizeHtml(html)))}</div>`;
 }
 function renderLegacyMarkdown(value) {
   value = textValue(value);
