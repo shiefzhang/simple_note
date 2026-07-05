@@ -14,6 +14,7 @@ Android · Web · iOS 实现规范 · Markdown · HTML · LaTeX · WebDAV 图片
 
 - [项目定位](#项目定位)
 - [当前实现](#当前实现)
+- [产品截图](#产品截图)
 - [版本更新](#版本更新)
 - [现有客户端差异](#现有客户端差异)
 - [完整功能](#完整功能)
@@ -66,6 +67,36 @@ simple-note-export.json
 | iOS | 本地开发，不推送 GitHub | 应实现本地数据库 + WebDAV | 建议 SwiftUI、SwiftData/Core Data、URLSession |
 
 > `ios-local/` 已被 `.gitignore` 排除。iOS 开发不能依赖仓库中的 iOS 源码，跨端兼容行为以本文档的“数据模型”“WebDAV 文件协议”“同步算法”和“iOS 开发规范”为准。
+
+---
+
+## 产品截图
+
+### Android
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/android-note-list.jpg" alt="Android 笔记列表与分类" width="100%"><br>
+      <sub>笔记列表与分类</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/android-sync-settings.jpg" alt="Android 主题与 WebDAV 同步设置" width="100%"><br>
+      <sub>主题与 WebDAV 同步</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/screenshots/android-markdown-preview.jpg" alt="Android Markdown 表格预览" width="100%"><br>
+      <sub>Markdown 表格预览</sub>
+    </td>
+  </tr>
+</table>
+
+### Web
+
+<p align="center">
+  <img src="docs/screenshots/web-desktop-editor.png" alt="网页版桌面编辑界面" width="100%"><br>
+  <sub>桌面端三栏布局与 Markdown 预览</sub>
+</p>
 
 ---
 
