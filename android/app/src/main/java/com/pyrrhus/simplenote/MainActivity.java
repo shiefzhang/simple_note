@@ -37,6 +37,9 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        NoteDbHelper database = new NoteDbHelper(this);
+        database.diagnostics().event("activity_created", "savedInstanceState=" + (state != null));
+        database.removeBlankNotes("activity_start");
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(246, 240, 228));
         WebSettings settings = webView.getSettings();
@@ -45,7 +48,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
         settings.setMediaPlaybackRequiresUserGesture(true);
-        webView.addJavascriptInterface(new LocalBridge(new NoteDbHelper(this), this), "LocalNotes");
+        webView.addJavascriptInterface(new LocalBridge(database, this), "LocalNotes");
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onShowFileChooser(
                 WebView view,

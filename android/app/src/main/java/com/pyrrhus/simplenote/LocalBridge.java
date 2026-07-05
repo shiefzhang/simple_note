@@ -21,6 +21,7 @@ final class LocalBridge {
     LocalBridge(NoteDbHelper db, Context context) {
         this.db = db;
         this.imageDir = new File(context.getFilesDir(), "images");
+        db.diagnostics().event("bridge_created", "logPath=" + db.diagnostics().path());
     }
 
     @JavascriptInterface public String request(String method, String path, String body) {
@@ -45,12 +46,14 @@ final class LocalBridge {
                 String title = input.optString("title", "").trim();
                 String content = input.optString("content", "").trim();
                 if (content.isEmpty() && (title.isEmpty() || "\u65b0\u7b14\u8bb0".equals(title))) {
+                    db.diagnostics().event("note_create_rejected", "titleLength=" + title.length()
+                        + " contentLength=" + content.length());
                     return error("\u7a7a\u767d\u7b14\u8bb0\u4e0d\u4f1a\u4fdd\u5b58");
                 }
                 Note note = Note.fromJson(input);
                 note.id = java.util.UUID.randomUUID().toString();
                 note.createdAt = note.updatedAt = NoteDbHelper.now();
-                db.save(note);
+                db.save(note, "local_api_post");
                 return ok(note.toJson());
             }
             if ("PUT".equals(method) && path.startsWith("/api/notes/")) {
@@ -58,12 +61,19 @@ final class LocalBridge {
                 Note existing = db.find(id);
                 if (existing == null) return error("笔记不存在");
                 JSONObject input = new JSONObject(body);
+                String title = input.optString("title", "").trim();
+                String content = input.optString("content", "").trim();
+                if (content.isEmpty() && (title.isEmpty() || "\u65b0\u7b14\u8bb0".equals(title))) {
+                    db.diagnostics().event("note_update_rejected", "id=" + id
+                        + " titleLength=" + title.length() + " contentLength=" + content.length());
+                    return error("\u7a7a\u767d\u7b14\u8bb0\u4e0d\u4f1a\u4fdd\u5b58");
+                }
                 existing.title = input.optString("title", "");
                 existing.content = input.optString("content", "");
                 existing.format = input.optString("format", "markdown");
                 existing.category = input.optString("category", "随笔");
                 existing.updatedAt = NoteDbHelper.now();
-                db.save(existing);
+                db.save(existing, "local_api_put");
                 return ok(existing.toJson());
             }
             if ("DELETE".equals(method) && path.startsWith("/api/notes/")) {
@@ -106,6 +116,8 @@ final class LocalBridge {
                     .put("categories", new JSONArray(db.categories())));
             }
             if ("POST".equals(method) && "/api/sync/push".equals(path)) {
+                db.diagnostics().event("sync_push_started", "");
+                db.removeBlankNotes("sync_push");
                 try {
                     db.merge(WebDavSync.download(
                         requiredUrl(),
@@ -126,24 +138,29 @@ final class LocalBridge {
                     db.exportJson(),
                     imageDir
                 );
+                db.diagnostics().event("sync_push_finished", "");
                 return ok(new JSONObject()
                     .put("ok", true)
                     .put("count", db.all("全部", "").size())
                     .put("synced_at", NoteDbHelper.now()));
             }
             if ("POST".equals(method) && "/api/sync/pull".equals(path)) {
+                db.diagnostics().event("sync_pull_started", "");
+                db.removeBlankNotes("sync_pull");
                 int count = db.merge(WebDavSync.download(
                     requiredUrl(),
                     db.getSetting("webdav_username", ""),
                     db.getSetting("webdav_password", ""),
                     imageDir
                 ));
+                db.diagnostics().event("sync_pull_finished", "merged=" + count);
                 return ok(new JSONObject()
                     .put("ok", true)
                     .put("count", count)
                     .put("synced_at", NoteDbHelper.now()));
             }
             if ("POST".equals(method) && "/api/sync/format".equals(path)) {
+                db.diagnostics().event("sync_format_started", "");
                 WebDavSync.upload(
                     requiredUrl(),
                     db.getSetting("webdav_username", ""),
@@ -151,6 +168,7 @@ final class LocalBridge {
                     db.emptyArchiveJson(),
                     imageDir
                 );
+                db.diagnostics().event("sync_format_finished", "");
                 return ok(new JSONObject()
                     .put("ok", true)
                     .put("count", 0)
@@ -158,6 +176,8 @@ final class LocalBridge {
             }
             return error("不支持的本地操作：" + method + " " + path);
         } catch (Exception error) {
+            db.diagnostics().event("bridge_request_failed", "method=" + method + " path=" + path
+                + " error=" + error.getClass().getSimpleName() + ":" + error.getMessage());
             return error(error.getMessage() == null ? "操作失败" : error.getMessage());
         }
     }

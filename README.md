@@ -14,6 +14,7 @@ Android · Web · iOS 实现规范 · Markdown · HTML · LaTeX · WebDAV 图片
 
 - [项目定位](#项目定位)
 - [当前实现](#当前实现)
+- [版本更新](#版本更新)
 - [现有客户端差异](#现有客户端差异)
 - [完整功能](#完整功能)
 - [交互与状态规则](#交互与状态规则)
@@ -65,6 +66,27 @@ simple-note-export.json
 | iOS | 本地开发，不推送 GitHub | 应实现本地数据库 + WebDAV | 建议 SwiftUI、SwiftData/Core Data、URLSession |
 
 > `ios-local/` 已被 `.gitignore` 排除。iOS 开发不能依赖仓库中的 iOS 源码，跨端兼容行为以本文档的“数据模型”“WebDAV 文件协议”“同步算法”和“iOS 开发规范”为准。
+
+---
+
+## 版本更新
+
+### 1.1.1（2026-07-05）
+
+本次为 Android 稳定性补丁版本：
+
+- 修复历史空白笔记在覆盖安装后持续显示的问题；应用启动和同步前会清理标题、正文均为空的记录。
+- 本地创建、更新和 WebDAV 合并均拒绝写入空白笔记，上传时也会过滤空白记录，避免污染其他客户端。
+- WebDAV 的立即同步、上传合并、下载合并和格式化操作显示阶段进度，并在操作期间禁用重复提交。
+- 增加隐私友好的 Android 诊断日志，记录 UUID、字段长度、空白状态和写入来源，不记录标题或正文内容。
+- 诊断日志同时输出到 Logcat 和应用内部滚动文件，单文件上限为 512 KiB。
+
+读取调试版日志：
+
+```powershell
+adb logcat -d -s SimpleNoteDiag:I
+adb shell run-as com.pyrrhus.simplenote.dev cat files/simple-note-diagnostics.log
+```
 
 ---
 
@@ -1259,12 +1281,12 @@ Markdown 预览由 `assets/vendor/marked/marked.umd.js` 提供 GFM 解析，`ass
 | Target SDK | 35 |
 | Compile SDK | 35 |
 | Java | 17 |
-| Version | 1.1.0 |
+| Version | 1.1.1 |
 
 Debug APK 文件名：
 
 ```text
-SimpleNote-debug-1.1.0-dev.apk
+SimpleNote-debug-1.1.1-dev.apk
 ```
 
 ---
@@ -1382,7 +1404,7 @@ $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 输出：
 
 ```text
-android/app/build/outputs/apk/debug/SimpleNote-debug-1.1.0-dev.apk
+android/app/build/outputs/apk/debug/SimpleNote-debug-1.1.1-dev.apk
 ```
 
 Release：
@@ -1631,6 +1653,17 @@ curl -I http://127.0.0.1:8000/
 - [ ] 删除墓碑不会被旧设备复活。
 - [ ] 错误特征码不会被覆盖。
 - [ ] 格式化云端不删除本地笔记。
+- [ ] 四种 WebDAV 操作在请求开始前显示进度，完成或失败后正确收起。
+- [ ] 同步期间相关按钮不可重复点击。
+- [ ] 云端空白笔记不会写入本地数据库。
+- [ ] 本地空白笔记不会写入 WebDAV 索引。
+
+### Android 诊断与恢复
+
+- [ ] 覆盖安装后，启动会清理遗留空白笔记。
+- [ ] `SimpleNoteDiag` 日志能区分本地创建、更新和 WebDAV 合并来源。
+- [ ] 诊断日志不包含标题正文原文。
+- [ ] 持久日志达到 512 KiB 后自动轮换。
 
 ---
 

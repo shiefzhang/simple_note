@@ -21,9 +21,11 @@ import java.util.UUID;
 final class NoteDbHelper extends SQLiteOpenHelper {
     private static final String DB_NAME = "simple-note.db";
     static final String ARCHIVE_SIGNATURE = "SIMPLE_NOTE_WEBDAV_V1";
+    private final DiagnosticLog diagnostics;
 
     NoteDbHelper(Context context) {
         super(context, DB_NAME, null, 3);
+        diagnostics = new DiagnosticLog(context);
     }
 
     @Override public void onCreate(SQLiteDatabase db) {
@@ -42,7 +44,8 @@ final class NoteDbHelper extends SQLiteOpenHelper {
         welcome.category = "随笔";
         welcome.createdAt = welcome.updatedAt = now();
         welcome.deleted = false;
-        save(db, welcome);
+        save(db, welcome, "database_create_welcome");
+        diagnostics.event("database_created", diagnostics.noteSummary(welcome));
     }
 
     private void createNotes(SQLiteDatabase db) {
@@ -65,17 +68,18 @@ final class NoteDbHelper extends SQLiteOpenHelper {
                     note.createdAt = cursor.getString(cursor.getColumnIndexOrThrow("created_at"));
                     note.updatedAt = cursor.getString(cursor.getColumnIndexOrThrow("updated_at"));
                     note.deleted = false;
-                    save(db, note);
+                    save(db, note, "database_upgrade_legacy");
                 }
             }
             db.execSQL("DROP TABLE notes_legacy");
         }
         if (oldVersion < 3) {
-            db.delete(
+            int removed = db.delete(
                 "notes",
                 "TRIM(content)='' AND (TRIM(title)='' OR TRIM(title)=?)",
                 new String[]{"\u65b0\u7b14\u8bb0"}
             );
+            diagnostics.event("database_upgrade_blank_cleanup", "removed=" + removed);
         }
     }
 
@@ -102,6 +106,18 @@ final class NoteDbHelper extends SQLiteOpenHelper {
             null, null, "updated_at DESC")) {
             while (cursor.moveToNext()) result.add(read(cursor));
         }
+        int blankCount = 0;
+        StringBuilder blankIds = new StringBuilder();
+        for (Note note : result) {
+            if ((note.title == null || note.title.trim().isEmpty())
+                && (note.content == null || note.content.trim().isEmpty())) {
+                blankCount++;
+                if (blankIds.length() > 0) blankIds.append(',');
+                blankIds.append(note.id);
+            }
+        }
+        diagnostics.event("notes_loaded", "visible=" + result.size()
+            + " blank=" + blankCount + " blankIds=" + blankIds);
         return result;
     }
 
@@ -113,10 +129,14 @@ final class NoteDbHelper extends SQLiteOpenHelper {
     }
 
     void save(Note note) {
-        save(getWritableDatabase(), note);
+        save(note, "unspecified");
     }
 
-    private static void save(SQLiteDatabase db, Note note) {
+    void save(Note note, String source) {
+        save(getWritableDatabase(), note, source);
+    }
+
+    private void save(SQLiteDatabase db, Note note, String source) {
         ContentValues values = new ContentValues();
         values.put("id", note.id);
         values.put("title", note.title == null ? "" : note.title);
@@ -126,7 +146,9 @@ final class NoteDbHelper extends SQLiteOpenHelper {
         values.put("created_at", note.createdAt);
         values.put("updated_at", note.updatedAt);
         values.put("deleted", note.deleted ? 1 : 0);
-        db.insertWithOnConflict("notes", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+        long result = db.insertWithOnConflict("notes", null, values, SQLiteDatabase.CONFLICT_REPLACE);
+        diagnostics.event("note_saved", "source=" + source + " result=" + result + " "
+            + diagnostics.noteSummary(note));
     }
 
     void delete(String id) {
@@ -134,7 +156,17 @@ final class NoteDbHelper extends SQLiteOpenHelper {
         if (note == null) return;
         note.deleted = true;
         note.updatedAt = now();
-        save(note);
+        save(note, "delete_tombstone");
+    }
+
+    int removeBlankNotes(String source) {
+        int removed = getWritableDatabase().delete(
+            "notes",
+            "deleted=0 AND TRIM(content)='' AND (TRIM(title)='' OR TRIM(title)=?)",
+            new String[]{"\u65b0\u7b14\u8bb0"}
+        );
+        diagnostics.event("blank_notes_removed", "source=" + source + " removed=" + removed);
+        return removed;
     }
 
     String getSetting(String key, String fallback) {
@@ -178,7 +210,16 @@ final class NoteDbHelper extends SQLiteOpenHelper {
 
     JSONObject exportJson() throws JSONException {
         JSONArray notes = new JSONArray();
-        for (Note note : query("全部", "", true)) notes.put(note.toJson());
+        int skippedBlank = 0;
+        for (Note note : query("全部", "", true)) {
+            if (!note.deleted && isBlank(note)) {
+                skippedBlank++;
+                continue;
+            }
+            notes.put(note.toJson());
+        }
+        diagnostics.event("notes_exported", "count=" + notes.length()
+            + " skippedBlank=" + skippedBlank);
         return new JSONObject()
             .put("signature", ARCHIVE_SIGNATURE)
             .put("version", 2)
@@ -209,14 +250,26 @@ final class NoteDbHelper extends SQLiteOpenHelper {
             throw new JSONException("旧版数据文件结构无效，无法确认这是纸间的 WebDAV 数据文件");
         }
         JSONArray notes = payload.optJSONArray("notes");
+        diagnostics.event("webdav_merge_started", "notes=" + (notes == null ? 0 : notes.length())
+            + " mergeCategories=" + mergeCategories);
         int count = 0;
         if (notes != null) {
             for (int i = 0; i < notes.length(); i++) {
-                Note incoming = Note.fromJson(notes.getJSONObject(i));
+                JSONObject raw = notes.getJSONObject(i);
+                Note incoming = Note.fromJson(raw);
+                if (!incoming.deleted && isBlank(incoming)) {
+                    diagnostics.event("webdav_blank_rejected", "index=" + i + " rawHasId="
+                        + raw.has("id") + " " + diagnostics.noteSummary(incoming));
+                    continue;
+                }
                 Note local = find(incoming.id);
                 if (local == null || isNewer(incoming.updatedAt, local.updatedAt)) {
-                    save(incoming);
+                    save(incoming, "webdav_merge index=" + i + " rawHasId=" + raw.has("id")
+                        + " localExists=" + (local != null));
                     count++;
+                } else {
+                    diagnostics.event("webdav_merge_skipped", "index=" + i + " rawHasId="
+                        + raw.has("id") + " " + diagnostics.noteSummary(incoming));
                 }
             }
         }
@@ -231,7 +284,16 @@ final class NoteDbHelper extends SQLiteOpenHelper {
             }
             categories(values);
         }
+        diagnostics.event("webdav_merge_finished", "saved=" + count);
         return count;
+    }
+
+    DiagnosticLog diagnostics() { return diagnostics; }
+
+    private static boolean isBlank(Note note) {
+        String title = note.title == null ? "" : note.title.trim();
+        String content = note.content == null ? "" : note.content.trim();
+        return content.isEmpty() && (title.isEmpty() || "\u65b0\u7b14\u8bb0".equals(title));
     }
 
     private static boolean isValidLegacyArchive(JSONObject payload) {
