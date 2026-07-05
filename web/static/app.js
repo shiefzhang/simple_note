@@ -801,9 +801,25 @@ function dateText(value) {
     ? date.toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"})
     : date.toLocaleDateString("zh-CN", {month: "short", day: "numeric"});
 }
+async function loadBackendVersion() {
+  const label = $("#appVersion");
+  if (!label || isLocalApp) return;
+  try {
+    const response = await fetch(`/api/version?_=${Date.now()}`, {cache: "no-store"});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    if (!payload.version) throw new Error("版本字段缺失");
+    label.textContent = `Web v${payload.version}`;
+    label.title = "由当前运行中的后端返回";
+  } catch (error) {
+    label.textContent = "后端版本未知";
+    label.title = `版本接口不可用：${error.message}`;
+  }
+}
 async function boot(load = true) {
   $("#loginView").classList.add("hidden");
   $("#appView").classList.remove("hidden");
+  await loadBackendVersion();
   try {
     if (isLocalApp) {
       [notes, settings] = await Promise.all([

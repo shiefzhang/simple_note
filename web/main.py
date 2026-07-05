@@ -21,6 +21,7 @@ DAV_FILENAME = "simple-note-export.json"
 ARCHIVE_SIGNATURE = "SIMPLE_NOTE_WEBDAV_V1"
 NOTE_FILE_SUFFIX = ".json"
 IMAGE_DIR = "images"
+APP_VERSION = "1.1.3"
 IMAGE_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
@@ -29,7 +30,7 @@ IMAGE_EXTENSIONS = {
     "image/svg+xml": ".svg",
 }
 
-app = FastAPI(title="纸间 · 简单笔记", version="2.0.0")
+app = FastAPI(title="纸间 · 简单笔记", version=APP_VERSION)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
@@ -263,6 +264,12 @@ def index() -> FileResponse:
 @app.get("/favicon.ico", include_in_schema=False)
 def favicon() -> FileResponse:
     return FileResponse(STATIC / "icons" / "favicon.ico")
+
+
+@app.get("/api/version")
+def app_version(response: Response) -> dict[str, str]:
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    return {"version": APP_VERSION}
 
 
 @app.post("/api/webdav/load")
