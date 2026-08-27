@@ -140,8 +140,8 @@ h2 { margin: 0; font-size: 21px; }
 .inline-preview { flex: 1; overflow: auto; padding: 12px 0 30px; font: 16px/1.9 "Noto Serif SC","Microsoft YaHei",serif; }
 .inline-preview.html-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
 .search-preview { flex: 1; overflow: auto; margin: 0; padding: 12px 0 30px; white-space: pre-wrap; overflow-wrap: anywhere; font: 16px/1.95 "Noto Serif SC","Microsoft YaHei",serif; }
-.search-preview mark { padding: 1px 0; border-radius: 2px; background: color-mix(in srgb, var(--terra) 28%, var(--surface)); color: var(--ink); }
-.search-preview mark.current { background: var(--terra); color: white; }
+.search-preview mark, .inline-preview mark { padding: 1px 0; border-radius: 2px; background: color-mix(in srgb, var(--terra) 28%, var(--surface)); color: var(--ink); }
+.search-preview mark.current, .inline-preview mark.current { position: relative; z-index: 1; background: var(--terra); color: white; box-shadow: 0 0 0 3px color-mix(in srgb, var(--terra) 24%, transparent); }
 .inline-preview img { max-width: 100%; height: auto; }
 .inline-preview h1,.inline-preview h2,.inline-preview h3 { line-height: 1.35; }
 .inline-preview blockquote { margin: 1em 0; padding-left: 1em; border-left: 3px solid var(--terra); color: var(--muted); }

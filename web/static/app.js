@@ -536,18 +536,75 @@ function setNoteSaveState(state) {
   button.disabled = state !== "dirty";
   button.textContent = state === "saving" ? "保存中…" : "保存笔记";
 }
-function markNoteDirty() {
+function markNoteDirty(refreshSearch = true) {
   if (!selected) return;
   setNoteSaveState("dirty");
   $("#syncText").textContent = isLocalApp ? "有未保存更改" : "等待写入 WebDAV…";
-  if ($("#noteSearch")?.value) runNoteSearch("nearest");
+  if (refreshSearch && $("#noteSearch")?.value) runNoteSearch("refresh");
 }
 function setSearchMode(active) {
   const sourceView = $("[data-view].active")?.dataset.view === "source";
-  $("#searchPreview").classList.toggle("hidden", !active);
-  $("#noteContent").classList.toggle("hidden", active || !sourceView);
-  $(".format-bar").classList.toggle("hidden", active || !sourceView);
-  $("#inlinePreview").classList.toggle("hidden", active || sourceView);
+  $("#searchPreview").classList.add("hidden");
+  $("#noteContent").classList.toggle("hidden", !sourceView);
+  $(".format-bar").classList.toggle("hidden", !sourceView);
+  $("#inlinePreview").classList.toggle("hidden", sourceView);
+}
+function currentEditorView() {
+  return $("[data-view].active")?.dataset.view || "source";
+}
+function renderInlineView(view) {
+  const preview = $("#inlinePreview");
+  preview.classList.toggle("html-lines", view === "html");
+  preview.innerHTML = view === "markdown"
+    ? renderLocalMarkdown($("#noteContent").value)
+    : safeHtml($("#noteContent").value);
+  renderMath(preview);
+  return preview;
+}
+function highlightPreviewSearch(preview, query) {
+  if (!query) return [];
+  const needle = query.toLocaleLowerCase();
+  const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.data.trim()) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest("script,style,textarea,mark")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return node.data.toLocaleLowerCase().includes(needle)
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    }
+  });
+  const nodes = [];
+  let node;
+  while ((node = walker.nextNode())) nodes.push(node);
+  const marks = [];
+  nodes.forEach(textNode => {
+    const text = textNode.data;
+    const lower = text.toLocaleLowerCase();
+    const fragment = document.createDocumentFragment();
+    let offset = 0, position = 0;
+    while ((position = lower.indexOf(needle, offset)) !== -1) {
+      if (position > offset) fragment.append(text.slice(offset, position));
+      const mark = document.createElement("mark");
+      mark.textContent = text.slice(position, position + query.length);
+      fragment.append(mark);
+      marks.push(mark);
+      offset = position + query.length;
+    }
+    if (offset < text.length) fragment.append(text.slice(offset));
+    textNode.replaceWith(fragment);
+  });
+  return marks;
+}
+function scrollCurrentSearchMark(container, mark) {
+  if (!mark) return;
+  requestAnimationFrame(() => {
+    const containerRect = container.getBoundingClientRect();
+    const markRect = mark.getBoundingClientRect();
+    container.scrollTop += markRect.top - containerRect.top
+      - container.clientHeight / 2 + markRect.height / 2;
+  });
 }
 function clearNoteSearch(clearInput = true) {
   if (clearInput) $("#noteSearch").value = "";
@@ -555,6 +612,8 @@ function clearNoteSearch(clearInput = true) {
   noteSearchIndex = -1;
   $("#noteSearchCount").textContent = "0/0";
   $("#searchPreview").innerHTML = "";
+  const view = currentEditorView();
+  if (view !== "source") renderInlineView(view);
   setSearchMode(false);
 }
 function runNoteSearch(action = "nearest") {
@@ -564,6 +623,32 @@ function runNoteSearch(action = "nearest") {
     return;
   }
   const content = $("#noteContent").value;
+  const view = currentEditorView();
+  if (view !== "source") {
+    const preview = renderInlineView(view);
+    const marks = highlightPreviewSearch(preview, query);
+    noteSearchMatches = marks;
+    if (!marks.length) {
+      noteSearchIndex = -1;
+      $("#noteSearchCount").textContent = "0/0";
+      setSearchMode(true);
+      return;
+    }
+    if (action === "next") {
+      noteSearchIndex = (noteSearchIndex + 1) % marks.length;
+    } else if (action === "prev") {
+      noteSearchIndex = (noteSearchIndex - 1 + marks.length) % marks.length;
+    } else if (action === "current") {
+      noteSearchIndex = Math.min(Math.max(noteSearchIndex, 0), marks.length - 1);
+    } else if (noteSearchIndex < 0 || noteSearchIndex >= marks.length) {
+      noteSearchIndex = 0;
+    }
+    marks[noteSearchIndex]?.classList.add("current");
+    $("#noteSearchCount").textContent = `${noteSearchIndex + 1}/${marks.length}`;
+    setSearchMode(true);
+    scrollCurrentSearchMark(preview, marks[noteSearchIndex]);
+    return;
+  }
   const haystack = content.toLocaleLowerCase();
   const needle = query.toLocaleLowerCase();
   noteSearchMatches = [];
@@ -574,7 +659,6 @@ function runNoteSearch(action = "nearest") {
   if (!noteSearchMatches.length) {
     noteSearchIndex = -1;
     $("#noteSearchCount").textContent = "0/0";
-    $("#searchPreview").textContent = content;
     setSearchMode(true);
     return;
   }
@@ -582,30 +666,21 @@ function runNoteSearch(action = "nearest") {
     noteSearchIndex = (noteSearchIndex + 1) % noteSearchMatches.length;
   } else if (action === "prev") {
     noteSearchIndex = (noteSearchIndex - 1 + noteSearchMatches.length) % noteSearchMatches.length;
+  } else if (action === "current") {
+    noteSearchIndex = Math.min(Math.max(noteSearchIndex, 0), noteSearchMatches.length - 1);
   } else {
     const cursor = $("#noteContent").selectionStart || 0;
     const nearest = noteSearchMatches.findIndex(position => position >= cursor);
     noteSearchIndex = nearest === -1 ? 0 : nearest;
   }
-  let html = "", offset = 0;
-  noteSearchMatches.forEach((position, index) => {
-    html += escapeHtml(content.slice(offset, position));
-    html += `<mark class="${index === noteSearchIndex ? "current" : ""}">${escapeHtml(content.slice(position, position + query.length))}</mark>`;
-    offset = position + query.length;
-  });
-  $("#searchPreview").innerHTML = html + escapeHtml(content.slice(offset));
   $("#noteSearchCount").textContent = `${noteSearchIndex + 1}/${noteSearchMatches.length}`;
   setSearchMode(true);
-  requestAnimationFrame(() => {
-    const preview = $("#searchPreview");
-    const current = preview.querySelector("mark.current");
-    if (current) {
-      const previewRect = preview.getBoundingClientRect();
-      const currentRect = current.getBoundingClientRect();
-      preview.scrollTop += currentRect.top - previewRect.top
-        - preview.clientHeight / 2 + currentRect.height / 2;
-    }
-  });
+  const editor = $("#noteContent");
+  const position = noteSearchMatches[noteSearchIndex];
+  if (action !== "refresh" || document.activeElement !== editor) {
+    editor.setSelectionRange(position, position + query.length);
+    editor.scrollTop = Math.max(0, sourceScrollTopForOffset(editor, position) - editor.clientHeight / 3);
+  }
 }
 function editorScrollProgress(element) {
   const search = $("#searchPreview");
@@ -786,14 +861,9 @@ function switchEditorView(view, focusSource = true, anchor = captureEditorAnchor
     return;
   }
   selected.format = view;
-  const preview = $("#inlinePreview");
-  preview.classList.toggle("html-lines", view === "html");
-  preview.innerHTML = view === "markdown"
-    ? renderLocalMarkdown($("#noteContent").value)
-    : safeHtml($("#noteContent").value);
-  renderMath(preview);
+  const preview = renderInlineView(view);
   restoreEditorAnchor(preview, anchor, false);
-  markNoteDirty();
+  markNoteDirty(false);
 }
 function dateText(value) {
   const date = new Date(value), now = new Date();
@@ -1186,9 +1256,13 @@ $("#saveNoteBtn").onclick = saveCurrent;
 $$("[data-view]").forEach(button => button.onclick = () => {
   const anchor = captureEditorAnchor();
   const query = $("#noteSearch").value;
+  const searchIndex = noteSearchIndex;
   clearNoteSearch(false);
   switchEditorView(button.dataset.view, false, anchor);
-  if (query) runNoteSearch("nearest");
+  if (query) {
+    noteSearchIndex = searchIndex;
+    runNoteSearch("current");
+  }
 });
 $("#noteSearch").oninput = () => runNoteSearch("nearest");
 $("#noteSearch").onkeydown = event => {

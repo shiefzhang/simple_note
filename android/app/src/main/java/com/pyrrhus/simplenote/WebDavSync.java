@@ -89,7 +89,7 @@ final class WebDavSync {
     private static JSONObject getJson(String baseUrl, String username, String password, String fileName)
         throws Exception {
         HttpURLConnection connection = open(baseUrl, username, password, "GET", fileName);
-        verify(connection);
+        verify(connection, baseUrl);
         try (InputStream input = connection.getInputStream();
              BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
             StringBuilder text = new StringBuilder();
@@ -115,13 +115,13 @@ final class WebDavSync {
         try (OutputStream output = connection.getOutputStream()) {
             output.write(bytes);
         }
-        verify(connection);
+        verify(connection, baseUrl);
     }
 
     private static byte[] getBytes(String baseUrl, String username, String password, String fileName)
         throws Exception {
         HttpURLConnection connection = open(baseUrl, username, password, "GET", fileName);
-        verify(connection);
+        verify(connection, baseUrl);
         try (InputStream input = connection.getInputStream();
              java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
             byte[] buffer = new byte[16 * 1024];
@@ -134,7 +134,7 @@ final class WebDavSync {
     private static void ensureImageDir(String baseUrl, String username, String password) throws Exception {
         HttpURLConnection connection = open(baseUrl, username, password, "MKCOL", IMAGE_DIR);
         int code = connection.getResponseCode();
-        if (code != 201 && code != 405) verify(connection);
+        if (code != 201 && code != 405) verify(connection, baseUrl);
     }
 
     private static void uploadReferencedImages(
@@ -240,14 +240,30 @@ final class WebDavSync {
         return java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20");
     }
 
-    private static void verify(HttpURLConnection connection) throws Exception {
+    private static void verify(HttpURLConnection connection, String baseUrl) throws Exception {
         int code = connection.getResponseCode();
         if (code < 200 || code >= 300) {
             if (code == 401) throw new IllegalStateException("WebDAV 用户名或密码错误（HTTP 401）");
             if (code == 403) throw new IllegalStateException("WebDAV 没有读写权限（HTTP 403）");
-            if (code == 404) throw new IllegalStateException("WebDAV 路径不存在（HTTP 404）");
+            if (code == 404 && isJianGuoYun(baseUrl)) {
+                throw new IllegalStateException(
+                    "坚果云拒绝了 WebDAV 请求（HTTP 404）。地址应为 https://dav.jianguoyun.com/dav/；"
+                        + "用户名请填写注册邮箱，密码必须使用坚果云“第三方应用管理”中生成的应用密码，不能使用账户登录密码。"
+                );
+            }
+            if (code == 404) throw new IllegalStateException(
+                "WebDAV 路径不存在或服务器拒绝了认证（HTTP 404）。请检查目录地址、用户名和 WebDAV 专用密码。"
+            );
             if (code == 405) throw new IllegalStateException("服务器不允许此 WebDAV 操作（HTTP 405）");
             throw new IllegalStateException("WebDAV 返回 HTTP " + code);
+        }
+    }
+
+    private static boolean isJianGuoYun(String baseUrl) {
+        try {
+            return "dav.jianguoyun.com".equalsIgnoreCase(new URL(baseUrl.trim()).getHost());
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
