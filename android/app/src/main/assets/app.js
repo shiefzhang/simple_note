@@ -294,7 +294,7 @@ function runNoteSearch(action="nearest") {
   const editor=$("#noteContent"),position=noteSearchMatches[noteSearchIndex];
   if(action!=="refresh"||document.activeElement!==editor){
     editor.setSelectionRange(position,position+query.length);
-    editor.scrollTop=Math.max(0,sourceScrollTopForOffset(editor,position)-editor.clientHeight/3);
+    editor.scrollTop=Math.max(0,sourceScrollTopForOffset(editor,position)-editor.clientHeight/2);
   }
 }
 function editorScrollProgress(element) {
@@ -452,12 +452,12 @@ function switchEditorView(view, focusSource=true, anchor=captureEditorAnchor()) 
   $$("[data-view]").forEach(button=>button.classList.toggle("active",button.dataset.view===view));
   if(source){
     if(focusSource)$("#noteContent").focus({preventScroll:true});
-    restoreEditorAnchor($("#noteContent"),anchor,true);
+    if(anchor)restoreEditorAnchor($("#noteContent"),anchor,true);
     return;
   }
   selected.format=view;
   const preview=renderInlineView(view);
-  restoreEditorAnchor(preview,anchor,false);
+  if(anchor)restoreEditorAnchor(preview,anchor,false);
   markNoteDirty(false);
 }
 function dateText(value) {
@@ -708,7 +708,7 @@ $$("[data-view]").forEach(button=>button.onclick=()=>{
   const query=$("#noteSearch").value;
   const searchIndex=noteSearchIndex;
   clearNoteSearch(false);
-  switchEditorView(button.dataset.view,false,anchor);
+  switchEditorView(button.dataset.view,Boolean(query),query?null:anchor);
   if(query){noteSearchIndex=searchIndex;runNoteSearch("current");}
 });
 $("#noteSearch").oninput=()=>runNoteSearch("nearest");

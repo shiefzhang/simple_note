@@ -21,7 +21,7 @@ DAV_FILENAME = "simple-note-export.json"
 ARCHIVE_SIGNATURE = "SIMPLE_NOTE_WEBDAV_V1"
 NOTE_FILE_SUFFIX = ".json"
 IMAGE_DIR = "images"
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 IMAGE_EXTENSIONS = {
     "image/png": ".png",
     "image/jpeg": ".jpg",
